@@ -1,0 +1,64 @@
+# ───────────────────────────────────────────────────────────────────
+# Project metadata and dependencies
+# ───────────────────────────────────────────────────────────────────
+# This file tells Python what libraries this project needs and how
+# to run it.  Think of it like a recipe — it lists all ingredients
+# (dependencies) and instructions (scripts).
+# ───────────────────────────────────────────────────────────────────
+
+[build-system]
+# We use "setuptools" as the build tool, which is the standard
+# Python packaging system.
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# ── Basic info ─────────────────────────────────────────────────────
+name = "landonkea-mac-deal-alert-scraper"
+version = "1.0.0"
+description = "Scrapes eBay, Swappa, Apple Refurb, Back Market, Mercari and more every 6 hours, alerts you when a 14-inch MacBook Pro M5 Max (64GB/128GB) is listed at a great price."
+readme = "README.md"
+requires-python = ">=3.11"
+
+# ── Dependencies ───────────────────────────────────────────────────
+# These are the libraries this project uses.
+# They get installed automatically when you run `pip install -e .`
+dependencies = [
+    # ── Web scraping ──────────────────────────────────────────────
+    "requests>=2.31",          # Fetches web pages (HTTP library)
+    "beautifulsoup4>=4.12",    # Parses HTML (finds elements by CSS class, etc.)
+    "lxml>=5.0",              # Fast HTML/XML parser (BeautifulSoup backend)
+
+    # ── Database ──────────────────────────────────────────────────
+    "sqlalchemy>=2.0",         # Database ORM (lets us use SQLite or Postgres)
+    "alembic>=1.13",           # Database migrations (track schema changes)
+
+    # ── Configuration ─────────────────────────────────────────────
+    "pyyaml>=6.0",             # Reads config.yaml files
+
+    # ── Scheduling ────────────────────────────────────────────────
+    # (Not needed if running via GitHub Actions cron, but useful
+    #  for local testing.)
+    "schedule>=1.2",
+
+    # ── Fallback browser automation ──────────────────────────────
+    # Only needed if we switch to Playwright for JS-heavy sites.
+    # Leave commented out unless needed.
+    # "playwright>=1.40",
+]
+
+# ── Command-line entry point ───────────────────────────────────────
+# This defines the `mac-deal-scraper` command.
+# When you run `mac-deal-scraper`, Python calls main() from src/main.py.
+[project.scripts]
+mac-deal-scraper = "src.main:main"
+
+# ── Development dependencies ──────────────────────────────────────
+# These are only needed when DEVELOPING the project (not running it).
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",             # Test framework
+    "pytest-cov>=4.0",         # Test coverage reporting
+    "ruff>=0.3",               # Code linter
+    "mypy>=1.8",               # Type checker
+]

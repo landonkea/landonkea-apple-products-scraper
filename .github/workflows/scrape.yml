@@ -1,0 +1,91 @@
+# ───────────────────────────────────────────────────────────────────
+# GitHub Actions workflow — runs the scraper every 6 hours
+# ───────────────────────────────────────────────────────────────────
+# This file tells GitHub to:
+#   1. Run `mac-deal-scraper` every 6 hours via cron
+#   2. Allow manual triggering from the GitHub UI ("workflow_dispatch")
+#   3. Commit the SQLite database back to the repo so we don't
+#      lose seen listings between runs
+#
+# To enable:
+#   1. Push this repo to GitHub (public or private)
+#   2. Go to Settings → Secrets and variables → Actions
+#   3. Add these secrets:
+#      - ALERT_EMAIL_FROM: your Gmail address
+#      - ALERT_EMAIL_TO: where alerts are sent
+#      - GMAIL_APP_PASSWORD: your Gmail app password
+#      - DISCORD_WEBHOOK_URL: your Discord webhook URL
+#   4. Done! The scraper runs automatically.
+# ───────────────────────────────────────────────────────────────────
+
+name: Mac Deal Scraper
+
+# ── When to run ──────────────────────────────────────────────────
+on:
+  # ── Cron schedule: every 6 hours ─────────────────────────────
+  # This runs at midnight, 6am, noon, and 6pm UTC.
+  schedule:
+    - cron: "0 */6 * * *"    # Every 6 hours
+  
+  # ── Manual trigger: allows running from GitHub UI ────────────
+  workflow_dispatch:
+
+# ── What to run ──────────────────────────────────────────────────
+jobs:
+  scrape:
+    # Run on the latest Ubuntu (free tier)
+    runs-on: ubuntu-latest
+    
+    # Timeout after 30 minutes (safety net)
+    timeout-minutes: 30
+    
+    steps:
+      # 1. Download the repo (including the database from last run)
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so we can commit changes
+          fetch-depth: 0
+      
+      # 2. Set up Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"    # Caches pip downloads for faster runs
+      
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install -e ".[dev]"
+      
+      # 4. Run the scraper
+      - name: Run scraper
+        env:
+          # Pass secrets as environment variables
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          mkdir -p data
+          mac-deal-scraper
+      
+      # 5. Commit the database back to the repo
+      #    This preserves seen listings between runs.
+      - name: Commit database updates
+        run: |
+          git config user.name "Mac Deal Scraper Bot"
+          git config user.email "bot@landonkea-mac-deal-alert"
+          
+          # Add the database file (if it changed or is new)
+          git add data/listings.db 2>/dev/null || true
+          
+          # Only commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No database changes to commit."
+          else
+            git commit -m "chore: update listings database [skip ci]"
+            git push
+          fi

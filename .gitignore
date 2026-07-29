@@ -1,0 +1,48 @@
+# ───────────────────────────────────────────────────────────────────
+# .gitignore — files that should NEVER be committed
+# ───────────────────────────────────────────────────────────────────
+
+# ── Python bytecode ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.so
+
+# ── Virtual environments ──────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── IDE files ─────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── OS files ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Project-specific ──────────────────────────────────────────
+# Database file (created at runtime, kept in git for continuity)
+# Comment these out if you want the DB tracked in git:
+# data/listings.db
+
+# ── Environment variables (local testing) ─────────────────────
+# Create a .env file for local testing with your secrets.
+# NEVER commit tokens or passwords.
+.env
+*.env.local
+
+# ── Distribution builds ───────────────────────────────────────
+dist/
+build/
+*.egg-info/
+
+# ── Test artifacts ────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ── Agent instructions — never commit ─────────────────────────
+AGENTS.md
+PROJECT_CHECKLIST.md

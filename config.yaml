@@ -1,0 +1,127 @@
+# ───────────────────────────────────────────────────────────────────
+# CONFIGURATION FILE — landonkea-mac-deal-alert-scraper
+# ───────────────────────────────────────────────────────────────────
+# This is the ONLY file you need to edit to change what you're
+# searching for.  Every setting here is read at runtime.
+#
+# To search for a different product next year, just change the
+# values below.  No code changes needed.
+# ───────────────────────────────────────────────────────────────────
+
+# ── WHAT TO SEARCH FOR ─────────────────────────────────────────────
+# These are the specs that ALL listings must match (or be close to).
+# The scraper will check every listing against these filters.
+search:
+  product_name: "MacBook Pro"           # Base product name
+  model_year: "2026"                    # Model year (for Apple Refurb etc.)
+  chip: "M5 Max"                       # Chip to search for
+  chip_fallback: "M5 Max"              # Keep same — no fallback chip
+
+  # Screen size: we ONLY want 14-inch.  No fallback.
+  screen_size_inches: 14
+  screen_size_fallback: ~              # ~ means "null / no fallback"
+
+  # RAM — you want 128GB primarily, 64GB as a backup.
+  # The scraper will alert for BOTH, but label 64GB as "fallback RAM".
+  ram_gb_primary: 128
+  ram_gb_fallback: 64
+
+  # Storage: you don't care.  Any size is fine.
+  # "null" means "accept any storage size".
+  storage_gb_min: ~
+  storage_gb_max: ~
+
+  # CPU / GPU cores: only the flagship M5 Max config
+  cpu_cores_min: 18
+  gpu_cores_min: 40
+
+  # Listings must be "Buy It Now" (fixed price), NOT auctions
+  # and NOT "contact seller" classified ads.
+  buy_it_now_only: true
+
+# ── PRICE THRESHOLDS ───────────────────────────────────────────────
+# These determine what counts as a "deal worth alerting about".
+# The scraper will compare every listing against these numbers.
+price:
+  # Absolute maximum price we're willing to pay.
+  # Anything above this is ignored entirely.
+  absolute_max_usd: 8000
+
+  # "Great deal" threshold — alert immediately if below this.
+  # Based on research: 128GB models retail ~$6,200-9,700 new.
+  # A great deal on 128GB would be under $5,000 (~25%+ off retail).
+  # For 64GB, under $4,000.
+  great_deal_usd:
+    128: 5000    # 128GB: alert if under $5,000
+    64:  4000    # 64GB:  alert if under $4,000
+
+  # "Good deal" threshold — worth checking but less urgent.
+  good_deal_usd:
+    128: 5500    # 128GB: worth looking at under $5,500
+    64:  4500    # 64GB:  worth looking at under $4,500
+
+  # Number of top deals to include in each alert email
+  top_deals_count: 15
+
+# ── WHAT SITES TO SCRAPE ───────────────────────────────────────────
+# Set a site to "enabled: false" to skip it without deleting it.
+# Each site has its own scraper module.
+sites:
+  ebay:
+    enabled: true
+    # eBay search URL template.  {{query}} is replaced with the
+    # search term, {{min_ram}} with the minimum RAM.
+    # We search for "MacBook Pro M5 Max 128GB" etc.
+    search_url: "https://www.ebay.com/sch/i.html?_nkw={{query}}&_sop=15&LH_BIN=1&_udhi={{max_price}}"
+
+  swappa:
+    enabled: true
+    # Swappa has a dedicated API for listings.
+    base_url: "https://swappa.com/api"
+
+  apple_refurb:
+    enabled: true
+    # Apple's Certified Refurbished store
+    search_url: "https://www.apple.com/shop/refurbished/mac/2026-macbook-pro"
+
+  backmarket:
+    enabled: true
+    search_url: "https://www.backmarket.com/search?q={{query}}"
+
+  mercari:
+    enabled: true
+    search_url: "https://www.mercari.com/search/?keyword={{query}}"
+
+  # Facebook Marketplace requires a login — we handle this via
+  # environment variables for the session cookie.
+  facebook:
+    enabled: false          # Disabled by default — requires login setup
+    search_url: "https://www.facebook.com/marketplace/search/?query={{query}}"
+
+# ── ALERT SETTINGS ─────────────────────────────────────────────────
+# How you want to be notified when a deal is found.
+alerts:
+  # Email via Gmail SMTP (free).  Set these in GitHub Secrets:
+  #   ALERT_EMAIL_FROM, ALERT_EMAIL_TO, GMAIL_APP_PASSWORD
+  email:
+    enabled: true
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+
+  # Discord webhook (free).  Create a webhook in your Discord
+  # server's channel settings, then set DISCORD_WEBHOOK_URL
+  # in GitHub Secrets.
+  discord:
+    enabled: true
+
+# ── RUN SCHEDULE ───────────────────────────────────────────────────
+# How often to run the scraper.
+# This is a cron expression.  "0 */6 * * *" = every 6 hours.
+schedule:
+  cron: "0 */6 * * *"
+
+# ── DATABASE ───────────────────────────────────────────────────────
+database:
+  # SQLite is the default — no server needed, file-based.
+  # Change to postgresql://user:pass@host/db if you want Postgres.
+  url: "sqlite:///data/listings.db"
