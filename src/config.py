@@ -78,6 +78,8 @@ class SitesConfig:
     apple_refurb: SiteConfig
     backmarket: SiteConfig
     mercari: SiteConfig
+    bestbuy: SiteConfig
+    offerup: SiteConfig
     facebook: SiteConfig
 
 
@@ -186,6 +188,8 @@ def load_config(path: str = "config.yaml") -> Config:
             apple_refurb=_parse_site(sites_raw["apple_refurb"]),
             backmarket=_parse_site(sites_raw["backmarket"]),
             mercari=_parse_site(sites_raw["mercari"]),
+            bestbuy=_parse_site(sites_raw["bestbuy"]),
+            offerup=_parse_site(sites_raw["offerup"]),
             facebook=_parse_site(sites_raw["facebook"]),
         ),
         alerts=AlertsConfig(
