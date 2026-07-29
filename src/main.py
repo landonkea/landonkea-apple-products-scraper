@@ -27,6 +27,8 @@ from scrapers.swappa import SwappaScraper
 from scrapers.apple_refurb import AppleRefurbScraper
 from scrapers.backmarket import BackMarketScraper
 from scrapers.mercari import MercariScraper
+from scrapers.bestbuy import BestBuyScraper
+from scrapers.offerup import OfferUpScraper
 
 from price_analyzer import PriceAnalyzer
 from notifier import Notifier
@@ -41,6 +43,8 @@ SCRAPER_CLASSES = {
     "apple_refurb": AppleRefurbScraper,
     "backmarket": BackMarketScraper,
     "mercari": MercariScraper,
+    "bestbuy": BestBuyScraper,
+    "offerup": OfferUpScraper,
 }
 
 

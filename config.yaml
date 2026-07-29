@@ -62,7 +62,9 @@ price:
     64:  4500    # 64GB:  worth looking at under $4,500
 
   # Number of top deals to include in each alert email
-  top_deals_count: 15
+  # Increased from 15 to 25 to account for more scraping sources
+  # (Best Buy, OfferUp, and future Facebook + Amazon).
+  top_deals_count: 25
 
 # ── WHAT SITES TO SCRAPE ───────────────────────────────────────────
 # Set a site to "enabled: false" to skip it without deleting it.
@@ -92,6 +94,20 @@ sites:
   mercari:
     enabled: true
     search_url: "https://www.mercari.com/search/?keyword={{query}}"
+
+  bestbuy:
+    enabled: true
+    # Best Buy Open Box — returned/inspected items at a discount.
+    # The scraper uses the "af=condition%3Aopen+box" URL filter
+    # and also validates condition text in each listing card.
+    search_url: "https://www.bestbuy.com/site/searchpage.jsp?st={{query}}&af=condition%3Aopen+box"
+
+  offerup:
+    enabled: true
+    # NOTE: OfferUp is fully JavaScript-rendered.  The scraper
+    # tries JSON-LD, Next.js data, and the internal API.  If
+    # none work, it logs instructions for Playwright setup.
+    search_url: "https://offerup.com/search/?q={{query}}"
 
   # Facebook Marketplace requires a login — we handle this via
   # environment variables for the session cookie.

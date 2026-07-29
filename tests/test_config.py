@@ -37,7 +37,7 @@ price:
   good_deal_usd:
     128: 5500
     64: 4500
-  top_deals_count: 15
+  top_deals_count: 25
 
 sites:
   ebay:
@@ -55,6 +55,12 @@ sites:
   mercari:
     enabled: true
     search_url: "https://www.mercari.com/search/?keyword={{query}}"
+  bestbuy:
+    enabled: true
+    search_url: "https://www.bestbuy.com/site/searchpage.jsp?st={{query}}&af=condition%3Aopen+box"
+  offerup:
+    enabled: true
+    search_url: "https://offerup.com/search/?q={{query}}"
   facebook:
     enabled: false
     search_url: ""
