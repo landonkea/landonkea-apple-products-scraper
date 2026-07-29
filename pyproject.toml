@@ -41,10 +41,11 @@ dependencies = [
     #  for local testing.)
     "schedule>=1.2",
 
-    # ── Fallback browser automation ──────────────────────────────
-    # Only needed if we switch to Playwright for JS-heavy sites.
-    # Leave commented out unless needed.
-    # "playwright>=1.40",
+    # ── Browser automation (for JS-heavy sites like OfferUp) ────
+    # Playwright launches a headless Chromium to render JavaScript
+    # pages.  No paid service needed — runs on GitHub Actions free.
+    # To install browsers: playwright install chromium
+    "playwright>=1.40",
 ]
 
 # ── Command-line entry point ───────────────────────────────────────
