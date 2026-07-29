@@ -35,9 +35,10 @@ search:
   cpu_cores_min: 18
   gpu_cores_min: 40
 
-  # Listings must be "Buy It Now" (fixed price), NOT auctions
-  # and NOT "contact seller" classified ads.
-  buy_it_now_only: true
+  # Allow both auctions AND Buy It Now — if there's a great deal
+  # at auction you can bid on it. The only thing we filter out is
+  # classified/person-to-person listings (Craigslist, etc.).
+  buy_it_now_only: false
 
 # ── PRICE THRESHOLDS ───────────────────────────────────────────────
 # These determine what counts as a "deal worth alerting about".
