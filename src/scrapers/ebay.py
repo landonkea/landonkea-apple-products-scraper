@@ -62,7 +62,8 @@ class eBayScraper(BaseScraper):
         url = (
             f"https://www.ebay.com/sch/i.html"
             f"?_nkw={encoded_query}"
-            f"&LH_BIN=1"                              # Buy It Now only
+            # NOTE: LH_ItemCondition includes Auctions (3000)                            
+            # so users can bid on great deals too.
             f"&LH_ItemCondition=4|3|2|1500|1000|2000" # Any condition
             f"&_sop=15"                               # Sort: lowest price + shipping
             f"&_udhi={max_price}"                     # Max price filter
