@@ -49,6 +49,7 @@ class SearchConfig:
     cpu_cores_min: Optional[int]
     gpu_cores_min: Optional[int]
     results_per_size: int
+    location: Optional[str]
 
 
 @dataclass
@@ -171,6 +172,7 @@ def load_config(path: str = "config.yaml") -> Config:
             cpu_cores_min=search_raw.get("cpu_cores_min"),
             gpu_cores_min=search_raw.get("gpu_cores_min"),
             results_per_size=search_raw.get("results_per_size", 30),
+            location=search_raw.get("location"),
         ),
         price=PriceConfig(
             absolute_max_usd=price_raw["absolute_max_usd"],

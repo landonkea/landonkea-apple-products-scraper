@@ -209,4 +209,5 @@ class eBayScraper(BaseScraper):
             storage_gb=storage,
             screen_size=screen,
             chip=chip,
+            location=None,
         )

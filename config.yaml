@@ -14,14 +14,14 @@
 search:
   product_name: "MacBook Pro"           # Base product name
 
-  # No chip filter — accept any chip (M1/M2/M3/M4/M5 Pro/Max/Ultra)
+  # Chip to search for — set to null for any chip
   chip: ~
   chip_fallback: ~
 
   # Screen sizes to search for: 14-inch and 16-inch
   screen_sizes: [14, 16]
 
-  # No RAM filter — accept any RAM size (8GB to 192GB)
+  # RAM filter — set to null for any RAM
   ram_gb_primary: ~
   ram_gb_fallback: ~
 
@@ -29,9 +29,8 @@ search:
   storage_gb_min: ~
   storage_gb_max: ~
 
-  # CPU / GPU cores: not filtering
-  cpu_cores_min: ~
-  gpu_cores_min: ~
+  # Location filter — only show listings in/near this area
+  location: ~
 
   # How many cheapest listings to return per screen size
   results_per_size: 30

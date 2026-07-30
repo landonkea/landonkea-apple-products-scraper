@@ -70,32 +70,28 @@ class BackMarketScraper(BaseScraper):
             if not html:
                 continue
             soup = self.parse_html(html)
-                
-                cards = soup.select("article[data-qa]")
-                if not cards:
-                    cards = soup.select("div.cell-productCard")
-                if not cards:
-                    cards = soup.select("[data-test='product-card']")
-                
-                results_for_size = 0
-                max_results = self.config.search.results_per_size
-                
-                for card in cards:
-                    if results_for_size >= max_results:
-                        break
-                    try:
-                        listing = self._parse_card(card)
-                        if listing and listing.listing_id not in found_ids:
-                            if self.passes_filters(listing):
-                                found.append(listing)
-                                found_ids.add(listing.listing_id)
-                                results_for_size += 1
-                    except Exception:
-                        continue
-                        
-            except Exception as e:
-                print(f"  [Back Market] Error fetching page: {e}")
-                continue
+            
+            cards = soup.select("article[data-qa]")
+            if not cards:
+                cards = soup.select("div.cell-productCard")
+            if not cards:
+                cards = soup.select("[data-test='product-card']")
+            
+            results_for_size = 0
+            max_results = self.config.search.results_per_size
+            
+            for card in cards:
+                if results_for_size >= max_results:
+                    break
+                try:
+                    listing = self._parse_card(card)
+                    if listing and listing.listing_id not in found_ids:
+                        if self.passes_filters(listing):
+                            found.append(listing)
+                            found_ids.add(listing.listing_id)
+                            results_for_size += 1
+                except Exception:
+                    continue
         
         print(f"  [Back Market] Found {len(found)} matching listings")
         return found
@@ -167,4 +163,5 @@ class BackMarketScraper(BaseScraper):
             storage_gb=storage,
             screen_size=screen,
             chip=chip,
+            location=None,
         )

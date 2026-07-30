@@ -219,6 +219,9 @@ class OfferUpScraper(BaseScraper):
             else:
                 condition = "Used"
         
+        # ── Location ────────────────────────────────────────────
+        location = item.get("locationName") or item.get("location", "")
+        
         # ── Parse specs from title ──────────────────────────────
         ram = self.extract_ram(title)
         storage = self.extract_storage(title)
@@ -236,6 +239,7 @@ class OfferUpScraper(BaseScraper):
             storage_gb=storage,
             screen_size=screen,
             chip=chip,
+            location=location,
         )
     
     def scrape(self) -> list[ScrapedListing]:

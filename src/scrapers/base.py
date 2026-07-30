@@ -43,6 +43,7 @@ class ScrapedListing:
     storage_gb: Optional[int]  # Parsed from title (e.g. 2048, 4096)
     screen_size: Optional[float]  # Parsed from title (e.g. 14.0)
     chip: Optional[str]        # Parsed from title (e.g. "M5 Max")
+    location: Optional[str]    # City/state from the listing
 
 
 # ── Spec-parsing helpers ───────────────────────────────────────────
@@ -153,10 +154,61 @@ def extract_chip(title: str) -> Optional[str]:
     
     Looks for "M5 Max", "M4 Max", "M5 Pro", etc.
     """
-    match = re.search(r'(M[345]\s*(?:Pro|Max|Ultra))', title, re.IGNORECASE)
+    match = re.search(r'(M[1-5]\s*(?:Pro|Max|Ultra))', title, re.IGNORECASE)
     if match:
         return match.group(1).strip()
     return None
+
+
+ACCESSORY_KEYWORDS = [
+    "case", "cover", "skin", "decals", "sticker", "sleeve", "bag",
+    "charger", "adapter", "power cord", "cable", "hub", "docking",
+    "keyboard", "mouse", "trackpad", "screen protector", "tempered glass",
+    "stand", "mount", "arm", "holder", "tray", "shell", "hard shell",
+    "battery", "replacement battery", "strap", "backpack",
+]
+
+
+def is_likely_macbook_pro(title: str) -> bool:
+    """
+    Check if a title is likely a real MacBook Pro (not an accessory).
+    
+    Filters out items like cases, chargers, keyboards that mention
+    "MacBook" but aren't actual computers.
+    
+    A real MacBook Pro listing has:
+      - "MacBook Pro" in the title (not just "MacBook")
+      - No accessory keywords (case, charger, cable, etc.)
+      - At least one hardware spec: chip (M1-M5), screen size, RAM,
+        or storage
+    
+    Args:
+        title: The listing title to check.
+    
+    Returns:
+        True if this looks like an actual MacBook Pro computer.
+    """
+    title_lower = title.lower()
+    
+    # Must be a MacBook Pro (not just MacBook)
+    if "macbook pro" not in title_lower:
+        return False
+    
+    # Exclude accessories by keyword
+    for kw in ACCESSORY_KEYWORDS:
+        if kw in title_lower:
+            return False
+    
+    # Must have at least one hardware indicator
+    has_chip = bool(re.search(r'M[1-5]\s*(?:Pro|Max|Ultra)', title, re.IGNORECASE))
+    has_screen = bool(re.search(r'\d{2}\s*[‑\-]?\s*inch', title, re.IGNORECASE)) or bool(re.search(r'\d{2}"', title))
+    has_ram = bool(re.search(r'\d+\s*GB\s*(?:RAM|Memory|Unified)', title, re.IGNORECASE))
+    has_storage = bool(re.search(r'\d+\s*(?:TB|GB)\s*(?:SSD|Storage)', title, re.IGNORECASE))
+    
+    if not (has_chip or has_screen or has_ram or has_storage):
+        return False
+    
+    return True
 
 
 # ── Base scraper ──────────────────────────────────────────────────
@@ -369,6 +421,10 @@ class BaseScraper(ABC):
         """
         s = self.config.search
         
+        # Skip non-computer listings (cases, chargers, keyboards, etc.)
+        if not is_likely_macbook_pro(listing.title):
+            return False
+        
         # Check chip (only if a chip filter is configured)
         if s.chip and listing.chip:
             chip_primary = s.chip.lower()
@@ -395,6 +451,11 @@ class BaseScraper(ABC):
                 or (s.ram_gb_fallback and listing.ram_gb == s.ram_gb_fallback)
             )
             if not ram_ok:
+                return False
+        
+        # Check location (only if configured)
+        if s.location and listing.location:
+            if s.location.lower() not in listing.location.lower():
                 return False
         
         # Check price ceiling

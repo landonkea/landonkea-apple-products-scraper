@@ -198,6 +198,7 @@ class SwappaScraper(BaseScraper):
             storage_gb=storage,
             screen_size=screen,
             chip=chip,
+            location=None,
         )
     
     def scrape(self) -> list[ScrapedListing]:
