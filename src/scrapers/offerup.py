@@ -80,9 +80,14 @@ class OfferUpScraper(BaseScraper):
         
         urls_to_try = [url]
         
-        chip = self.config.search.chip or "M5 Max"
-        ram = self.config.search.ram_gb_primary or 128
-        specific_query = f"MacBook Pro {chip} {ram}GB"
+        product = self.config.search.product_name
+        chip = self.config.search.chip
+        ram = self.config.search.ram_gb_primary
+        specific_query = product
+        if chip:
+            specific_query += f" {chip}"
+        if ram:
+            specific_query += f" {ram}GB"
         fallback_url = f"https://offerup.com/search/?q={specific_query.replace(' ', '+')}"
         urls_to_try.append(fallback_url)
         
