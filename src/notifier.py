@@ -298,26 +298,24 @@ class Notifier:
         ram_str = f"{self.config.search.ram_gb_primary}GB" if self.config.search.ram_gb_primary else "any RAM"
         
         # ── Build the Discord embed message ─────────────────────
-        # Discord uses "embeds" for rich formatting.
-        # Total embed size limit is 6000 characters.
+        # Discord allows up to 10 embeds per message.
+        # We use 2: one for stats + top 12 deals, one for remaining 13.
         
         best = top_deals[0] if top_deals else None
-
-        # Build compact text block for all top deals
-        deal_lines = []
-        for i, listing in enumerate(top_deals[:25], 1):
-            emoji = "🔥" if listing.is_great_deal else "💰"
-            title_short = listing.title[:50]
-            line = f"{emoji} #{i} — **${listing.price_usd:,.0f}** — [{title_short}]({listing.url}) — {listing.source}"
-            deal_lines.append(line)
-        deals_text = "\n".join(deal_lines)
         
-        embed = {
-            "title": "🎯 MacBook Pro Deal Alert",
-            "color": 0x00ff00 if best and best.is_great_deal else 0xffaa00,
-            "description": deals_text[:5800],
-            "fields": [
-                {
+        embeds = []
+        
+        def embed_with_deals(start: int, count: int, title: str = None) -> dict:
+            e = {
+                "title": title or "🎯 MacBook Pro Deal Alert",
+                "color": 0x00ff00 if best and best.is_great_deal else 0xffaa00,
+                "fields": [],
+                "footer": {
+                    "text": f"MacBook Pro {sizes_str}\" | Chip: {chip_str} | {ram_str}"
+                },
+            }
+            if start == 0:
+                e["fields"].append({
                     "name": "📊 Market Snapshot",
                     "value": (
                         f"**{stats['count']}** listings found\n"
@@ -326,13 +324,20 @@ class Notifier:
                         f"Median: **${stats['median']:,.0f}**"
                     ),
                     "inline": False,
-                }
-            ],
-            "footer": {
-                "text": f"MacBook Pro {sizes_str}\" | Chip: {chip_str} | {ram_str}"
-            },
-            "timestamp": self.config.secrets.get("timestamp", ""),
-        }
+                })
+            for i in range(start, min(start + count, len(top_deals[:25]))):
+                listing = top_deals[i]
+                rank = i + 1
+                emoji = "🔥" if listing.is_great_deal else "💰"
+                e["fields"].append({
+                    "name": f"{emoji} #{rank} — ${listing.price_usd:,.0f} | {listing.source}",
+                    "value": f"[{listing.title[:80]}]({listing.url}) — Score: {listing.deal_score}/100",
+                    "inline": False,
+                })
+            return e
+        
+        embeds.append(embed_with_deals(0, 12, "🎯 MacBook Pro Deal Alert"))
+        embeds.append(embed_with_deals(12, 13))
         
         # Build the payload
         payload = {
@@ -340,7 +345,7 @@ class Notifier:
             "avatar_url": (
                 "https://cdn3.emoji.gg/emojis/4013-macbook.png"
             ),
-            "embeds": [embed],
+            "embeds": embeds,
         }
         
         # Send to Discord

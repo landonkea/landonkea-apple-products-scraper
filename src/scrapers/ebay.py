@@ -158,6 +158,8 @@ class eBayScraper(BaseScraper):
                 continue
             
             soup = self.parse_html(html)
+            
+            # Try Playwright-rendered selectors first
             items = soup.select("li.s-card")
             if not items:
                 items = soup.select("div.s-card")
@@ -167,6 +169,17 @@ class eBayScraper(BaseScraper):
                 items = soup.select("li[data-viewport]")
             if not items:
                 items = soup.select("div[data-viewport]")
+            # Fallback: server-rendered eBay HTML (plain request)
+            if not items:
+                items = soup.select("li.s-item")
+            if not items:
+                items = soup.select(".s-item__wrapper")
+            if not items:
+                items = soup.select("[data-view*='grid'] li")
+            if not items:
+                items = soup.select("[id*='srp-river'] li")
+            if not items:
+                items = soup.select("ul.srp-results li")
             
             results_for_size = 0
             max_results = self.config.search.results_per_size
@@ -197,8 +210,18 @@ class eBayScraper(BaseScraper):
         Returns:
             A ScrapedListing or None if parsing fails.
         """
+        # Try Playwright-rendered selectors first
         title_elem = item.select_one(".s-card__title")
         link_elem = item.select_one(".su-card-container__header a.s-card__link")
+        price_elem = item.select_one(".s-card__price")
+        condition_elem = item.select_one(".s-card__subtitle")
+        
+        # Fallback: server-rendered selectors
+        if not title_elem or not link_elem:
+            title_elem = item.select_one(".s-item__title")
+            link_elem = item.select_one("a.s-item__link")
+            price_elem = item.select_one(".s-item__price")
+            condition_elem = item.select_one(".s-item__subtitle")
         
         if not title_elem or not link_elem:
             return None
@@ -212,7 +235,6 @@ class eBayScraper(BaseScraper):
         if "contact seller" in title.lower():
             return None
         
-        price_elem = item.select_one(".s-card__price")
         if not price_elem:
             return None
         
@@ -228,7 +250,6 @@ class eBayScraper(BaseScraper):
         
         listing_id = self._parse_listing_id(url)
         
-        condition_elem = item.select_one(".s-card__subtitle")
         condition = condition_elem.get_text(strip=True) if condition_elem else None
         
         ram = self.extract_ram(title)
