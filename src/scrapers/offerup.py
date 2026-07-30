@@ -22,6 +22,8 @@ import json
 import re
 from typing import Optional
 
+from bs4 import BeautifulSoup
+
 from scrapers.base import BaseScraper, ScrapedListing
 from config import Config
 
@@ -62,14 +64,14 @@ class OfferUpScraper(BaseScraper):
     
     def _fetch_listings_json(self, url: str) -> list[dict]:
         """
-        Load the OfferUp search page and extract listing data from
-        the embedded Next.js state (__NEXT_DATA__).
+        Load the OfferUp search page and extract listing data.
         
-        Playwright renders the page, then we extract the JSON data
-        that Next.js embeds in a <script> tag.  This data contains
-        all the listings the page would show, even if the visual
-        render is blocked by anti-bot.
-        
+        Tries four strategies in order:
+          1. __NEXT_DATA__ (Next.js embedded JSON — fastest)
+          2. JSON-LD (structured data <script> tags)
+          3. Rendered card elements (wait for JS, scrape the DOM)
+          4. /item/detail/ links in pre-rendered HTML
+          
         Args:
             url: The OfferUp search URL.
         
@@ -91,14 +93,13 @@ class OfferUpScraper(BaseScraper):
         fallback_url = f"https://offerup.com/search/?q={specific_query.replace(' ', '+')}"
         urls_to_try.append(fallback_url)
         
-        next_data_json = None
         last_error = None
         
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(
                     headless=True,
-                    args=["--no-sandbox", "--disable-setuid-sandbox"],
+                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
                 )
                 
                 context = browser.new_context(
@@ -120,6 +121,7 @@ class OfferUpScraper(BaseScraper):
                     page.goto(try_url, wait_until="load", timeout=30000)
                     page.wait_for_timeout(5000)
                     
+                    # ── Strategy 1: __NEXT_DATA__ ──────────────────
                     next_data_json = page.evaluate("""
                         () => {
                             const el = document.getElementById('__NEXT_DATA__');
@@ -128,7 +130,33 @@ class OfferUpScraper(BaseScraper):
                     """)
                     
                     if next_data_json:
-                        break
+                        listings = self._parse_next_data(next_data_json)
+                        if listings:
+                            browser.close()
+                            return listings
+                    
+                    # ── Wait more for JS rendering ────────────────
+                    page.wait_for_timeout(8000)
+                    html = page.content()
+                    soup = BeautifulSoup(html, "lxml")
+                    
+                    # ── Strategy 2: JSON-LD structured data ──────
+                    jsonld = self._extract_jsonld_listings(soup)
+                    if jsonld:
+                        browser.close()
+                        return jsonld
+                    
+                    # ── Strategy 3: Rendered card elements ────────
+                    cards = self._extract_card_listings(soup)
+                    if cards:
+                        browser.close()
+                        return cards
+                    
+                    # ── Strategy 4: /item/detail/ link parsing ──
+                    links = self._extract_link_listings(soup)
+                    if links:
+                        browser.close()
+                        return links
                 
                 browser.close()
         
@@ -141,27 +169,173 @@ class OfferUpScraper(BaseScraper):
                 f"Install: pip install playwright && playwright install chromium"
             ) from last_error
         
-        if not next_data_json:
-            print("  [OfferUp] No __NEXT_DATA__ found on page")
-            return []
-        
-        # ── Parse the JSON and extract listings ─────────
+        print("  [OfferUp] No listings found on page")
+        return []
+    
+    # ── Extraction strategy helpers ───────────────────────────────
+    
+    def _parse_next_data(self, next_data_json: str) -> list[dict]:
+        """Parse listings from __NEXT_DATA__ JSON."""
         data = json.loads(next_data_json)
-        
-        # Navigate through the Next.js data structure
         page_props = data.get("props", {}).get("pageProps", {})
         feed = page_props.get("searchFeedResponse", {})
         loose_tiles = feed.get("looseTiles", [])
-        
-        # Filter for listing tiles (not ads)
         listings = []
         for tile in loose_tiles:
             if tile.get("__typename") == "ModularFeedTileListing":
                 listing_data = tile.get("listing", {})
                 if listing_data and listing_data.get("title"):
                     listings.append(listing_data)
-        
         return listings
+    
+    def _extract_jsonld_listings(self, soup: BeautifulSoup) -> list[dict]:
+        """Extract listings from JSON-LD structured data."""
+        scripts = soup.select("script[type='application/ld+json']")
+        listings = []
+        for script in scripts:
+            try:
+                data = json.loads(script.string)
+                items = data if isinstance(data, list) else [data]
+                for item in items:
+                    name = item.get("name", "")
+                    if "macbook" not in name.lower():
+                        continue
+                    url = item.get("url", "")
+                    url = self._clean_url(url)
+                    id_match = re.search(r'/item/detail/([^/?]+)', url)
+                    listing_id = id_match.group(1) if id_match else ""
+                    offers = item.get("offers", {})
+                    price_str = "0"
+                    if isinstance(offers, dict):
+                        price_str = offers.get("price", "0")
+                    elif isinstance(offers, list) and offers:
+                        price_str = offers[0].get("price", "0")
+                    listings.append({
+                        "listingId": listing_id,
+                        "title": name,
+                        "price": str(price_str),
+                        "conditionText": item.get("condition", ""),
+                        "locationName": item.get("areaServed", ""),
+                        "url": url,
+                    })
+            except Exception:
+                continue
+        return listings
+    
+    def _extract_card_listings(self, soup: BeautifulSoup) -> list[dict]:
+        """Extract listings from rendered card elements."""
+        cards = (
+            soup.select("[data-testid='search-card']")
+            or soup.select("article")
+            or soup.select("div[class*='Card' i]")
+            or soup.select("a[href*='/item/detail/']")
+        )
+        seen_ids = set()
+        listings = []
+        for card in cards:
+            try:
+                title = ""
+                title_el = card.select_one(
+                    "h1, h2, h3, [class*='title' i], [class*='Title'], [aria-label]"
+                )
+                if title_el:
+                    title = title_el.get("aria-label") or title_el.get_text(strip=True) or ""
+                if not title:
+                    title = card.get("aria-label") or card.get_text(strip=True) or ""
+                if not title or "macbook" not in title.lower():
+                    continue
+                
+                price_el = card.select_one(
+                    "[class*='price' i], [class*='Price'], [data-testid*='price']"
+                )
+                price_str = price_el.get_text(strip=True) if price_el else "0"
+                price_str = re.sub(r'[$,]', '', price_str)
+                price = float(price_str) if price_str else 0
+                if price <= 0:
+                    continue
+                
+                link = card if card.name == "a" else card.select_one("a[href*='/item/detail/']")
+                url = ""
+                if link:
+                    url = link.get("href", "")
+                    if url and not url.startswith("http"):
+                        url = f"https://offerup.com{url}"
+                    url = self._clean_url(url)
+                
+                id_match = re.search(r'/item/detail/([^/?]+)', url)
+                listing_id = id_match.group(1) if id_match else ""
+                if not listing_id or listing_id in seen_ids:
+                    continue
+                seen_ids.add(listing_id)
+                
+                condition_el = card.select_one("[class*='condition' i], [class*='Condition']")
+                condition = condition_el.get_text(strip=True) if condition_el else None
+                
+                location_el = card.select_one("[class*='location' i], [class*='Location']")
+                location = location_el.get_text(strip=True) if location_el else None
+                
+                listings.append({
+                    "listingId": listing_id,
+                    "title": title,
+                    "price": str(price),
+                    "conditionText": condition,
+                    "locationName": location,
+                    "url": url,
+                })
+            except Exception:
+                continue
+        return listings
+    
+    def _extract_link_listings(self, soup: BeautifulSoup) -> list[dict]:
+        """Extract listings from /item/detail/ links in pre-rendered HTML."""
+        links = soup.select("a[href*='/item/detail/']")
+        seen_ids = set()
+        listings = []
+        for link in links:
+            href = link.get("href", "")
+            if not href:
+                continue
+            if href.startswith("/"):
+                href = f"https://offerup.com{href}"
+            href = self._clean_url(href)
+            
+            id_match = re.search(r'/item/detail/([^/?]+)', href)
+            if not id_match:
+                continue
+            listing_id = id_match.group(1)
+            if listing_id in seen_ids:
+                continue
+            seen_ids.add(listing_id)
+            
+            title = link.get("aria-label", "") or link.get_text(strip=True) or ""
+            if "macbook" not in title.lower():
+                continue
+            
+            price = "0"
+            parent = link.parent
+            if parent:
+                price_el = parent.select_one(
+                    "[class*='price' i], [class*='Price'], [data-testid*='price']"
+                )
+                if price_el:
+                    price = re.sub(r'[$,]', '', price_el.get_text(strip=True))
+            
+            listings.append({
+                "listingId": listing_id,
+                "title": title,
+                "price": price,
+                "conditionText": None,
+                "locationName": None,
+                "url": href,
+            })
+        return listings
+    
+    @staticmethod
+    def _clean_url(url: str) -> str:
+        """Strip query parameters and fragments from a URL."""
+        url = re.sub(r'\?.*', '', url)
+        url = re.sub(r'#.*', '', url)
+        return url
     
     def _parse_listing(self, item: dict) -> Optional[ScrapedListing]:
         """
@@ -207,6 +381,7 @@ class OfferUpScraper(BaseScraper):
         # OfferUp URLs are constructed like:
         #   https://offerup.com/item/detail/{listingId}
         url = f"https://offerup.com/item/detail/{listing_id}"
+        url = self._clean_url(url)
         
         # ── Condition ───────────────────────────────────────────
         condition = item.get("conditionText")

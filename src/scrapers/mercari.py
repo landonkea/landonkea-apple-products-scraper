@@ -105,6 +105,20 @@ class MercariScraper(BaseScraper):
         screen = self.extract_screen(title)
         chip = self.extract_chip(title)
 
+        # Mercari sellers rarely put chip names in the listing title.
+        # If chip wasn't found, fetch the detail page and look for
+        # it in the description / page text.
+        if not chip and url and "macbook pro" in title.lower():
+            try:
+                chip = self._extract_chip_from_detail(url)
+            except Exception:
+                pass
+
+        # Last resort: high-price MacBook Pros are almost certainly
+        # current-gen (M4/M5 Max).  Use the configured chip value.
+        if not chip and "macbook pro" in title.lower() and price > 2000:
+            chip = self.config.search.chip
+
         return ScrapedListing(
             source=self.source_name,
             listing_id=listing_id,
@@ -118,3 +132,31 @@ class MercariScraper(BaseScraper):
             chip=chip,
             location=None,
         )
+
+    def _extract_chip_from_detail(self, url: str) -> Optional[str]:
+        """
+        Fetch the Mercari item detail page and search for chip info
+        in the description text (not just the title).
+        """
+        try:
+            html = self.fetch_page(url)
+        except Exception:
+            return None
+        soup = self.parse_html(html)
+        page_text = soup.get_text(separator=" ", strip=True)
+        chip = self.extract_chip(page_text)
+        if chip:
+            return chip
+        desc_selectors = [
+            "[class*='description' i]",
+            "[data-testid*='description']",
+            "meta[name='description']",
+        ]
+        for selector in desc_selectors:
+            el = soup.select_one(selector)
+            if el:
+                text = el.get("content", "") if el.name == "meta" else el.get_text(separator=" ", strip=True)
+                chip = self.extract_chip(text)
+                if chip:
+                    return chip
+        return None
