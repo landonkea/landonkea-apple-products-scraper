@@ -75,7 +75,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           mkdir -p data
-          mac-deal-scraper
+          python -m main
       
       # 6. Commit the database back to the repo
       #    This preserves seen listings between runs.
