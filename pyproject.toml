@@ -48,6 +48,10 @@ dependencies = [
     "playwright>=1.40",
 ]
 
+# ── Tell setuptools to find packages in the src/ directory ─────────
+[tool.setuptools.packages.find]
+where = ["src"]
+
 # ── Command-line entry point ───────────────────────────────────────
 # This defines the `mac-deal-scraper` command.
 # When you run `mac-deal-scraper`, Python calls main() from src/main.py.

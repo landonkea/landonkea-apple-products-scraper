@@ -9,6 +9,7 @@
 # inherits from BaseScraper and implements scrape().
 # ───────────────────────────────────────────────────────────────────
 
+import random
 import re
 import time
 from abc import ABC, abstractmethod
@@ -185,18 +186,40 @@ class BaseScraper(ABC):
         # HTTP session — reuses connections for speed
         self.session = requests.Session()
         
-        # Custom headers so websites think we're a real browser
-        self.session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/125.0.0.0 Safari/537.36"
-            ),
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        })
+        # Rotate user agent per request to avoid bot detection
+        self._user_agents = [
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        ]
+        
+        # Set default headers (overridden per request)
+        self._update_headers()
     
-    def fetch_page(self, url: str) -> str:
+    def _update_headers(self):
+        """Rotate to a random user agent and set realistic browser headers."""
+        ua = random.choice(self._user_agents)
+        self.session.headers.update({
+            "User-Agent": ua,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Sec-Ch-Ua": '"Not/A)Brand";v="99", "Google Chrome";v="125", "Chromium";v="125"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"macOS"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+            "Dnt": "1",
+            "Connection": "keep-alive",
+        })
+
+    def fetch_page(self, url: str, max_retries: int = 3) -> str:
         """
         Fetch a web page and return its HTML.
         
@@ -205,19 +228,58 @@ class BaseScraper(ABC):
         
         Args:
             url: The full URL to fetch.
+            max_retries: Number of retries on 403/5xx errors.
         
         Returns:
             The page HTML as a string.
         
         Raises:
-            requests.RequestException if the fetch fails.
+            requests.RequestException if the fetch fails after all retries.
         """
-        # Wait 1-2 seconds between requests to be polite
-        time.sleep(1.5)
+        last_exception = None
         
-        response = self.session.get(url, timeout=30)
-        response.raise_for_status()  # Raise error if 404, 500, etc.
-        return response.text
+        for attempt in range(max_retries):
+            # Rotate user agent on each attempt
+            self._update_headers()
+            
+            # Wait 1-2 seconds between requests to be polite
+            delay = 1.5 + random.random()
+            time.sleep(delay)
+            
+            try:
+                response = self.session.get(url, timeout=30)
+                
+                # If we got blocked (403), try again with different UA
+                if response.status_code == 403:
+                    print(f"  [{self.source_name}] 403 on attempt {attempt + 1}, retrying...")
+                    last_exception = requests.HTTPError(f"403 Forbidden: {url}")
+                    time.sleep(2)
+                    continue
+                
+                response.raise_for_status()
+                return response.text
+                
+            except requests.Timeout:
+                print(f"  [{self.source_name}] Timeout on attempt {attempt + 1}, retrying...")
+                last_exception = requests.Timeout(f"Timeout: {url}")
+                time.sleep(2)
+                continue
+                
+            except requests.ConnectionError as e:
+                print(f"  [{self.source_name}] Connection error on attempt {attempt + 1}, retrying...")
+                last_exception = e
+                time.sleep(3)
+                continue
+                
+            except requests.HTTPError as e:
+                if attempt < max_retries - 1:
+                    print(f"  [{self.source_name}] HTTP {e.response.status_code} on attempt {attempt + 1}")
+                    time.sleep(2)
+                    last_exception = e
+                    continue
+                raise
+        
+        raise last_exception or requests.RequestException(f"Failed after {max_retries} attempts: {url}")
     
     def parse_html(self, html: str) -> BeautifulSoup:
         """
@@ -261,8 +323,8 @@ class BaseScraper(ABC):
         Check if a listing matches our search criteria.
         
         This checks:
-          - Chip matches M5 Max
-          - Screen size is 14-inch
+          - Chip matches primary or fallback
+          - Screen size is primary or fallback
           - RAM is 128GB (primary) or 64GB (fallback)
           - Price is under absolute_max_usd
         
@@ -272,29 +334,32 @@ class BaseScraper(ABC):
         Returns:
             True if we should keep this listing, False to skip it.
         """
-        config = self.config.search
+        s = self.config.search
         
-        # Check chip (most important filter)
+        # Check chip (primary or fallback)
         if listing.chip:
-            chip_ok = (
-                config.chip.lower() in listing.chip.lower()
-            )
-            if not chip_ok:
+            chip_primary = s.chip.lower()
+            chip_primary_ok = chip_primary in listing.chip.lower()
+            chip_fallback_ok = False
+            if s.chip_fallback:
+                chip_fallback_ok = s.chip_fallback.lower() in listing.chip.lower()
+            if not (chip_primary_ok or chip_fallback_ok):
                 return False
         
-        # Check screen size
+        # Check screen size (primary or fallback)
         if listing.screen_size:
-            size_ok = (
-                abs(listing.screen_size - config.screen_size_inches) < 1.0
-            )
-            if not size_ok:
+            size_primary_ok = abs(listing.screen_size - s.screen_size_inches) < 1.0
+            size_fallback_ok = False
+            if s.screen_size_fallback:
+                size_fallback_ok = abs(listing.screen_size - s.screen_size_fallback) < 1.0
+            if not (size_primary_ok or size_fallback_ok):
                 return False
         
-        # Check RAM
+        # Check RAM (primary or fallback)
         if listing.ram_gb:
             ram_ok = (
-                listing.ram_gb == config.ram_gb_primary
-                or listing.ram_gb == config.ram_gb_fallback
+                listing.ram_gb == s.ram_gb_primary
+                or listing.ram_gb == s.ram_gb_fallback
             )
             if not ram_ok:
                 return False

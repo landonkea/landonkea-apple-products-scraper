@@ -15,7 +15,7 @@ search:
   product_name: "MacBook Pro"           # Base product name
   model_year: "2026"                    # Model year (for Apple Refurb etc.)
   chip: "M5 Max"                       # Chip to search for
-  chip_fallback: "M5 Max"              # Keep same — no fallback chip
+  chip_fallback: "M4 Max"              # Fallback chip (M4 Max is on market now)
 
   # Screen size: we ONLY want 14-inch.  No fallback.
   screen_size_inches: 14
