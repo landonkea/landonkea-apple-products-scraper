@@ -323,18 +323,18 @@ class Notifier:
             "timestamp": self.config.secrets.get("timestamp", ""),
         }
         
-        # Add top deals as fields (Discord allows up to 25 fields)
-        for i, listing in enumerate(top_deals[:10], 1):
+        # Add top deals as fields (Discord allows up to 25 fields, but embed size limit is 6000 chars)
+        for i, listing in enumerate(top_deals[:5], 1):
             emoji = "🔥" if listing.is_great_deal else "💰"
             ram = f"{listing.ram_gb}GB" if listing.ram_gb else "?"
             
             embed["fields"].append({
                 "name": (
                     f"{emoji} #{i} — ${listing.price_usd:,.0f} "
-                    f"| {ram} | {listing.source}"
+                    f"| {listing.source}"
                 ),
                 "value": (
-                    f"[{listing.title[:100]}]({listing.url})\n"
+                    f"[{listing.title[:80]}]({listing.url})\n"
                     f"Score: {listing.deal_score}/100"
                 ),
                 "inline": False,
