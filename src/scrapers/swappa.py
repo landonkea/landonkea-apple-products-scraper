@@ -202,12 +202,13 @@ class SwappaScraper(BaseScraper):
     
     def scrape(self) -> list[ScrapedListing]:
         """
-        Scrape Swappa for M5 Max MacBook Pro listings.
+        Scrape Swappa for MacBook Pro listings sorted by price.
         
         Returns:
             A list of ScrapedListing objects.
         """
         found: list[ScrapedListing] = []
+        found_ids: set = set()
         
         # Try the JSON API first
         try:
@@ -216,8 +217,10 @@ class SwappaScraper(BaseScraper):
             for item in listings_data:
                 try:
                     listing = self._parse_item(item)
-                    if listing and self.passes_filters(listing):
-                        found.append(listing)
+                    if listing and listing.listing_id not in found_ids:
+                        if self.passes_filters(listing):
+                            found.append(listing)
+                            found_ids.add(listing.listing_id)
                 except Exception:
                     continue
         except Exception as e:

@@ -162,13 +162,14 @@ class Notifier:
         """
         
         # ── Config info ────────────────────────────────────────
+        sizes_str = "/".join(str(s) for s in self.config.search.screen_sizes)
+        chip_str = self.config.search.chip or "any chip"
+        ram_str = f"{self.config.search.ram_gb_primary}GB" if self.config.search.ram_gb_primary else "any RAM"
         config_info = f"""
         <p style="color: #999; font-size: 12px; margin-top: 30px;">
             Searching for: {self.config.search.product_name} 
-            {self.config.search.screen_size_inches}" 
-            {self.config.search.chip} |
-            RAM: {self.config.search.ram_gb_primary}GB 
-            (or {self.config.search.ram_gb_fallback}GB) |
+            {sizes_str}" | Chip: {chip_str} |
+            RAM: {ram_str} |
             Max price: ${self.config.price.absolute_max_usd:,.0f}
         </p>
         """
@@ -289,6 +290,11 @@ class Notifier:
                   "DISCORD_WEBHOOK_URL env var.")
             return
         
+        # ── Build summary strings ───────────────────────────────
+        sizes_str = "/".join(str(s) for s in self.config.search.screen_sizes)
+        chip_str = self.config.search.chip or "any chip"
+        ram_str = f"{self.config.search.ram_gb_primary}GB" if self.config.search.ram_gb_primary else "any RAM"
+        
         # ── Build the Discord embed message ─────────────────────
         # Discord uses "embeds" for rich formatting.
         
@@ -310,9 +316,7 @@ class Notifier:
                 }
             ],
             "footer": {
-                "text": f"Searching for: {self.config.search.chip} "
-                        f"{self.config.search.ram_gb_primary}GB "
-                        f"| Runs every 6 hours"
+                "text": f"MacBook Pro {sizes_str}\" | Chip: {chip_str} | {ram_str}"
             },
             "timestamp": self.config.secrets.get("timestamp", ""),
         }

@@ -13,32 +13,28 @@
 # The scraper will check every listing against these filters.
 search:
   product_name: "MacBook Pro"           # Base product name
-  model_year: "2026"                    # Model year (for Apple Refurb etc.)
-  chip: "M5 Max"                       # Chip to search for
-  chip_fallback: "M4 Max"              # Fallback chip (M4 Max is on market now)
 
-  # Screen size: we ONLY want 14-inch.  No fallback.
-  screen_size_inches: 14
-  screen_size_fallback: ~              # ~ means "null / no fallback"
+  # No chip filter — accept any chip (M1/M2/M3/M4/M5 Pro/Max/Ultra)
+  chip: ~
+  chip_fallback: ~
 
-  # RAM — you want 128GB primarily, 64GB as a backup.
-  # The scraper will alert for BOTH, but label 64GB as "fallback RAM".
-  ram_gb_primary: 128
-  ram_gb_fallback: 64
+  # Screen sizes to search for: 14-inch and 16-inch
+  screen_sizes: [14, 16]
 
-  # Storage: you don't care.  Any size is fine.
-  # "null" means "accept any storage size".
+  # No RAM filter — accept any RAM size (8GB to 192GB)
+  ram_gb_primary: ~
+  ram_gb_fallback: ~
+
+  # Storage: any size is fine
   storage_gb_min: ~
   storage_gb_max: ~
 
-  # CPU / GPU cores: only the flagship M5 Max config
-  cpu_cores_min: 18
-  gpu_cores_min: 40
+  # CPU / GPU cores: not filtering
+  cpu_cores_min: ~
+  gpu_cores_min: ~
 
-  # Allow both auctions AND Buy It Now — if there's a great deal
-  # at auction you can bid on it. The only thing we filter out is
-  # classified/person-to-person listings (Craigslist, etc.).
-  buy_it_now_only: false
+  # How many cheapest listings to return per screen size
+  results_per_size: 30
 
 # ── PRICE THRESHOLDS ───────────────────────────────────────────────
 # These determine what counts as a "deal worth alerting about".

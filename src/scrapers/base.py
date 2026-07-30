@@ -322,11 +322,8 @@ class BaseScraper(ABC):
         """
         Check if a listing matches our search criteria.
         
-        This checks:
-          - Chip matches primary or fallback
-          - Screen size is primary or fallback
-          - RAM is 128GB (primary) or 64GB (fallback)
-          - Price is under absolute_max_usd
+        Checks are SKIPPED for any field set to None in config —
+        this lets you loosen requirements without deleting fields.
         
         Args:
             listing: The parsed listing to check.
@@ -336,8 +333,8 @@ class BaseScraper(ABC):
         """
         s = self.config.search
         
-        # Check chip (primary or fallback)
-        if listing.chip:
+        # Check chip (only if a chip filter is configured)
+        if s.chip and listing.chip:
             chip_primary = s.chip.lower()
             chip_primary_ok = chip_primary in listing.chip.lower()
             chip_fallback_ok = False
@@ -346,20 +343,20 @@ class BaseScraper(ABC):
             if not (chip_primary_ok or chip_fallback_ok):
                 return False
         
-        # Check screen size (primary or fallback)
-        if listing.screen_size:
-            size_primary_ok = abs(listing.screen_size - s.screen_size_inches) < 1.0
-            size_fallback_ok = False
-            if s.screen_size_fallback:
-                size_fallback_ok = abs(listing.screen_size - s.screen_size_fallback) < 1.0
-            if not (size_primary_ok or size_fallback_ok):
+        # Check screen size (only if screen_sizes is configured)
+        if s.screen_sizes and listing.screen_size:
+            size_ok = any(
+                abs(listing.screen_size - size) < 1.0
+                for size in s.screen_sizes
+            )
+            if not size_ok:
                 return False
         
-        # Check RAM (primary or fallback)
-        if listing.ram_gb:
+        # Check RAM (only if a RAM filter is configured)
+        if s.ram_gb_primary and listing.ram_gb:
             ram_ok = (
                 listing.ram_gb == s.ram_gb_primary
-                or listing.ram_gb == s.ram_gb_fallback
+                or (s.ram_gb_fallback and listing.ram_gb == s.ram_gb_fallback)
             )
             if not ram_ok:
                 return False

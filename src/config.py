@@ -39,18 +39,16 @@ def _load_env_secrets() -> dict:
 class SearchConfig:
     """What hardware we're looking for."""
     product_name: str
-    model_year: str
-    chip: str
+    chip: Optional[str]
     chip_fallback: Optional[str]
-    screen_size_inches: int
-    screen_size_fallback: Optional[int]
-    ram_gb_primary: int
-    ram_gb_fallback: int
+    screen_sizes: list[int]
+    ram_gb_primary: Optional[int]
+    ram_gb_fallback: Optional[int]
     storage_gb_min: Optional[int]
     storage_gb_max: Optional[int]
-    cpu_cores_min: int
-    gpu_cores_min: int
-    buy_it_now_only: bool
+    cpu_cores_min: Optional[int]
+    gpu_cores_min: Optional[int]
+    results_per_size: int
 
 
 @dataclass
@@ -163,18 +161,16 @@ def load_config(path: str = "config.yaml") -> Config:
     config = Config(
         search=SearchConfig(
             product_name=search_raw["product_name"],
-            model_year=search_raw["model_year"],
-            chip=search_raw["chip"],
+            chip=search_raw.get("chip"),
             chip_fallback=search_raw.get("chip_fallback"),
-            screen_size_inches=search_raw["screen_size_inches"],
-            screen_size_fallback=search_raw.get("screen_size_fallback"),
-            ram_gb_primary=search_raw["ram_gb_primary"],
-            ram_gb_fallback=search_raw["ram_gb_fallback"],
+            screen_sizes=search_raw.get("screen_sizes", [14, 16]),
+            ram_gb_primary=search_raw.get("ram_gb_primary"),
+            ram_gb_fallback=search_raw.get("ram_gb_fallback"),
             storage_gb_min=search_raw.get("storage_gb_min"),
             storage_gb_max=search_raw.get("storage_gb_max"),
-            cpu_cores_min=search_raw["cpu_cores_min"],
-            gpu_cores_min=search_raw["gpu_cores_min"],
-            buy_it_now_only=search_raw["buy_it_now_only"],
+            cpu_cores_min=search_raw.get("cpu_cores_min"),
+            gpu_cores_min=search_raw.get("gpu_cores_min"),
+            results_per_size=search_raw.get("results_per_size", 30),
         ),
         price=PriceConfig(
             absolute_max_usd=price_raw["absolute_max_usd"],

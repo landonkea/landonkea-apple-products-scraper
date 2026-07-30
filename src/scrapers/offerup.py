@@ -40,24 +40,19 @@ class OfferUpScraper(BaseScraper):
         super().__init__(config)
         self.source_name = "offerup"
     
-    def _build_search_url(self, ram_gb: int) -> str:
+    def _build_search_url(self, screen_size: int) -> str:
         """
         Build an OfferUp search URL.
         
-        OfferUp uses simple query parameter search:
-          https://offerup.com/search/?q=macbook+pro+m5+max
-        
         Args:
-            ram_gb: RAM in GB (128 or 64).
+            screen_size: Screen size in inches (14 or 16).
         
         Returns:
             An OfferUp search URL.
         """
         product = self.config.search.product_name
-        chip = self.config.search.chip
-        screen = self.config.search.screen_size_inches
         
-        query = f"{product} {screen}-inch {chip} {ram_gb}GB"
+        query = f"{product} {screen_size}-inch"
         encoded = query.replace(" ", "+")
         
         return f"https://offerup.com/search/?q={encoded}"
@@ -245,12 +240,10 @@ class OfferUpScraper(BaseScraper):
     
     def scrape(self) -> list[ScrapedListing]:
         """
-        Scrape OfferUp for MacBook Pro M5 Max listings.
+        Scrape OfferUp for MacBook Pro listings sorted by price.
         
         Uses Playwright + __NEXT_DATA__ extraction to bypass
         OfferUp's anti-bot protection.
-        
-        Searches for both 128GB and 64GB configurations.
         
         Returns:
             A list of ScrapedListing objects.
@@ -258,20 +251,25 @@ class OfferUpScraper(BaseScraper):
         found: list[ScrapedListing] = []
         found_ids: set = set()
         
-        for ram in [128, 64]:
-            search_url = self._build_search_url(ram)
+        for screen_size in self.config.search.screen_sizes:
+            search_url = self._build_search_url(screen_size)
             
             try:
-                # Load the page and extract Next.js JSON data
                 listings_data = self._fetch_listings_json(search_url)
                 
+                results_for_size = 0
+                max_results = self.config.search.results_per_size
+                
                 for item in listings_data:
+                    if results_for_size >= max_results:
+                        break
                     try:
                         listing = self._parse_listing(item)
                         if listing and listing.listing_id not in found_ids:
                             if self.passes_filters(listing):
                                 found.append(listing)
                                 found_ids.add(listing.listing_id)
+                                results_for_size += 1
                     except Exception:
                         continue
                 
@@ -283,9 +281,7 @@ class OfferUpScraper(BaseScraper):
             print(f"  [OfferUp] Found {len(found)} matching listings")
         else:
             print(
-                "  [OfferUp] No matching listings found.  "
-                "This may be because OfferUp's search doesn't have "
-                "M5 Max MacBook Pros available in your area yet."
+                "  [OfferUp] No matching listings found."
             )
         
         return found

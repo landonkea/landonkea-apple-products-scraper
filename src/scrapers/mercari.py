@@ -26,58 +26,60 @@ class MercariScraper(BaseScraper):
         super().__init__(config)
         self.source_name = "mercari"
     
-    def _build_search_url(self, ram_gb: int) -> str:
+    def _build_search_url(self, screen_size: int) -> str:
         """
-        Build a Mercari search URL for the given RAM config.
-        
-        Mercari uses keyword-based search:
-          https://www.mercari.com/search/?keyword=macbook+pro+m5+max+128gb
+        Build a Mercari search URL for a specific screen size.
         
         Args:
-            ram_gb: RAM in GB.
+            screen_size: Screen size in inches (14 or 16).
         
         Returns:
             A Mercari search URL.
         """
         product = self.config.search.product_name
-        chip = self.config.search.chip
-        screen = self.config.search.screen_size_inches
         
-        query = f"{product} {screen}inch {chip} {ram_gb}gb"
+        query = f"{product} {screen_size}inch"
         encoded = quote(query)
         
         return f"https://www.mercari.com/search/?keyword={encoded}"
     
     def scrape(self) -> list[ScrapedListing]:
         """
-        Scrape Mercari for matching listings.
+        Scrape Mercari for MacBook Pro listings.
         
         Returns:
             A list of ScrapedListing objects.
         """
         found: list[ScrapedListing] = []
+        found_ids: set = set()
         
-        for ram in [128, 64]:
-            url = self._build_search_url(ram)
+        for screen_size in self.config.search.screen_sizes:
+            url = self._build_search_url(screen_size)
             
             try:
                 html = self.fetch_page(url)
                 soup = self.parse_html(html)
                 
-                # Mercari uses item cards with specific data attributes
                 cards = soup.select("[data-testid='item-card'], .item-card")
                 if not cards:
                     cards = soup.select("li[class*='item']")
                 if not cards:
                     cards = soup.select("a[href*='/items/']")
-                    # If we got links, wrap them in parent containers
                     cards = [link.parent for link in cards if link.parent]
                 
+                results_for_size = 0
+                max_results = self.config.search.results_per_size
+                
                 for card in cards:
+                    if results_for_size >= max_results:
+                        break
                     try:
                         listing = self._parse_card(card)
-                        if listing and self.passes_filters(listing):
-                            found.append(listing)
+                        if listing and listing.listing_id not in found_ids:
+                            if self.passes_filters(listing):
+                                found.append(listing)
+                                found_ids.add(listing.listing_id)
+                                results_for_size += 1
                     except Exception:
                         continue
                         

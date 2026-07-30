@@ -40,41 +40,31 @@ class BestBuyScraper(BaseScraper):
         super().__init__(config)
         self.source_name = "bestbuy"
     
-    def _build_search_url(self, ram_gb: int) -> str:
+    def _build_search_url(self, screen_size: int) -> str:
         """
-        Build a Best Buy search URL for a specific RAM config.
+        Build a Best Buy search URL for a specific screen size.
         
         Best Buy uses query parameters:
           st  = search terms
-          cp  = page number (1)
-          iht = inventory filter (y = in stock only)
-        
-        We add an "af" parameter to filter for Open Box items:
-          af=condition%3Aopen+box
+          af  = condition filter (open box)
         
         Args:
-            ram_gb: RAM in GB (128 or 64).
+            screen_size: Screen size in inches (14 or 16).
         
         Returns:
             A fully-formed Best Buy search URL.
         """
         product = self.config.search.product_name
-        chip = self.config.search.chip
-        screen = self.config.search.screen_size_inches
         
-        # Build the search query
-        query = f"{product} {screen}-inch {chip} {ram_gb}GB"
+        query = f"{product} {screen_size}-inch"
         encoded_query = query.replace(" ", "+")
-        
-        # Max price filter
-        max_price = int(self.config.price.absolute_max_usd)
         
         url = (
             f"https://www.bestbuy.com/site/searchpage.jsp"
             f"?st={encoded_query}"
-            f"&cp=1"                                              # Page 1
-            f"&iht=y"                                            # In stock only
-            f"&af=condition%3Aopen+box"                           # Open Box filter
+            f"&cp=1"
+            f"&iht=y"
+            f"&af=condition%3Aopen+box"
             f"&_dyncharset=UTF-8"
             f"&id=pcat17071"
             f"&type=page"
@@ -115,19 +105,19 @@ class BestBuyScraper(BaseScraper):
     
     def scrape(self) -> list[ScrapedListing]:
         """
-        Scrape Best Buy for Open Box MacBook Pro M5 Max listings.
+        Scrape Best Buy for Open Box MacBook Pro listings.
         
-        Searches for both 128GB and 64GB configurations.
+        Iterates over screen sizes, takes top N cheapest per size.
         Only returns items marked as "Open Box" condition.
         
         Returns:
             A list of ScrapedListing objects.
         """
         found: list[ScrapedListing] = []
+        found_ids: set = set()
         
-        # Search for both RAM configurations
-        for ram in [128, 64]:
-            search_url = self._build_search_url(ram)
+        for screen_size in self.config.search.screen_sizes:
+            search_url = self._build_search_url(screen_size)
             
             try:
                 html = self.fetch_page(search_url)
@@ -136,21 +126,25 @@ class BestBuyScraper(BaseScraper):
                 print(f"  [Best Buy] Error fetching search page: {e}")
                 continue
             
-            # ── Parse search results ────────────────────────────────
-            # Best Buy uses <li class="sku-item"> for each product.
-            
-            # Try multiple selectors Best Buy might use
             items = soup.select("li.sku-item")
             if not items:
                 items = soup.select("div.sku-item")
             if not items:
                 items = soup.select("[class*='sku-item']")
             
+            results_for_size = 0
+            max_results = self.config.search.results_per_size
+            
             for item in items:
+                if results_for_size >= max_results:
+                    break
                 try:
                     listing = self._parse_single_item(item)
-                    if listing and self.passes_filters(listing):
-                        found.append(listing)
+                    if listing and listing.listing_id not in found_ids:
+                        if self.passes_filters(listing):
+                            found.append(listing)
+                            found_ids.add(listing.listing_id)
+                            results_for_size += 1
                 except Exception:
                     continue
         

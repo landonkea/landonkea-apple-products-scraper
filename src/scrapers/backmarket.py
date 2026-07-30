@@ -26,54 +26,59 @@ class BackMarketScraper(BaseScraper):
         super().__init__(config)
         self.source_name = "backmarket"
     
-    def _build_search_url(self, ram_gb: int) -> str:
+    def _build_search_url(self, screen_size: int) -> str:
         """
         Build a Back Market search URL.
         
         Args:
-            ram_gb: RAM in GB (128 or 64).
+            screen_size: Screen size in inches (14 or 16).
         
         Returns:
             A Back Market search URL.
         """
         product = self.config.search.product_name
-        chip = self.config.search.chip
-        screen = self.config.search.screen_size_inches
         
-        query = f"{product} {screen}-inch {chip} {ram_gb}GB"
+        query = f"{product} {screen_size}-inch"
         encoded = query.replace(" ", "+")
         
         return f"https://www.backmarket.com/search?q={encoded}"
     
     def scrape(self) -> list[ScrapedListing]:
         """
-        Scrape Back Market for matching MacBook Pro listings.
+        Scrape Back Market for MacBook Pro listings sorted by price.
         
         Returns:
             A list of ScrapedListing objects.
         """
         found: list[ScrapedListing] = []
+        found_ids: set = set()
         
-        for ram in [128, 64]:
-            url = self._build_search_url(ram)
+        for screen_size in self.config.search.screen_sizes:
+            url = self._build_search_url(screen_size)
             
             try:
                 html = self.fetch_page(url)
                 soup = self.parse_html(html)
                 
-                # Back Market uses article cards for products.
-                # Try multiple selectors as the site may vary.
                 cards = soup.select("article[data-qa]")
                 if not cards:
                     cards = soup.select("div.cell-productCard")
                 if not cards:
                     cards = soup.select("[data-test='product-card']")
                 
+                results_for_size = 0
+                max_results = self.config.search.results_per_size
+                
                 for card in cards:
+                    if results_for_size >= max_results:
+                        break
                     try:
                         listing = self._parse_card(card)
-                        if listing and self.passes_filters(listing):
-                            found.append(listing)
+                        if listing and listing.listing_id not in found_ids:
+                            if self.passes_filters(listing):
+                                found.append(listing)
+                                found_ids.add(listing.listing_id)
+                                results_for_size += 1
                     except Exception:
                         continue
                         

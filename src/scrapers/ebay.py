@@ -28,22 +28,23 @@ class eBayScraper(BaseScraper):
         super().__init__(config)
         self.source_name = "ebay"
     
-    def _build_search_url(self, ram_gb: int) -> str:
+    def _build_search_url(self, screen_size: int) -> str:
         """
-        Build an eBay search URL for a specific RAM configuration.
+        Build an eBay search URL for a specific screen size.
+        
+        Searches broadly for "MacBook Pro 14-inch" / "MacBook Pro 16-inch"
+        sorted by lowest price + shipping first.
         
         Args:
-            ram_gb: RAM in GB (128 or 64).
+            screen_size: Screen size in inches (14 or 16).
         
         Returns:
-            A fully-formed eBay search URL.
+            A fully-formed eBay search URL sorted by price ascending.
         """
         product = self.config.search.product_name
-        chip = self.config.search.chip
-        screen = self.config.search.screen_size_inches
         max_price = int(self.config.price.absolute_max_usd)
         
-        query = f"{product} {screen}-inch {chip} {ram_gb}GB"
+        query = f"{product} {screen_size}-inch"
         encoded_query = query.replace(" ", "+")
         
         url = (
@@ -100,15 +101,19 @@ class eBayScraper(BaseScraper):
     
     def scrape(self) -> list[ScrapedListing]:
         """
-        Scrape eBay for matching MacBook Pro listings.
+        Scrape eBay for MacBook Pro listings sorted by price ascending.
+        
+        Iterates over configured screen sizes, takes top N cheapest
+        per size.
         
         Returns:
             A list of ScrapedListing objects.
         """
         found: list[ScrapedListing] = []
+        found_ids: set = set()
         
-        for ram in [128, 64]:
-            search_url = self._build_search_url(ram)
+        for screen_size in self.config.search.screen_sizes:
+            search_url = self._build_search_url(screen_size)
             html = None
             
             # Try Playwright first (bypasses bot detection)
@@ -128,11 +133,19 @@ class eBayScraper(BaseScraper):
             soup = self.parse_html(html)
             items = soup.select("li.s-item")
             
+            results_for_size = 0
+            max_results = self.config.search.results_per_size
+            
             for item in items:
+                if results_for_size >= max_results:
+                    break
                 try:
                     listing = self._parse_single_item(item)
-                    if listing and self.passes_filters(listing):
-                        found.append(listing)
+                    if listing and listing.listing_id not in found_ids:
+                        if self.passes_filters(listing):
+                            found.append(listing)
+                            found_ids.add(listing.listing_id)
+                            results_for_size += 1
                 except Exception:
                     continue
         
