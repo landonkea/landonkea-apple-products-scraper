@@ -93,7 +93,8 @@ class eBayScraper(BaseScraper):
                 # Launch a headless Chromium browser
                 browser = playwright.chromium.launch(
                     headless=True,
-                    args=["--no-sandbox", "--disable-setuid-sandbox"],
+                    args=["--no-sandbox", "--disable-setuid-sandbox",
+                          "--disable-dev-shm-usage"],
                 )
                 
                 # Create a real-looking browser context

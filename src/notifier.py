@@ -12,6 +12,7 @@
 import smtplib
 import json
 import os
+import re
 import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -21,6 +22,12 @@ import requests
 
 from database import Listing
 from config import Config
+
+
+def clean_url(url: str) -> str:
+    url = re.sub(r'\?.*', '', url)
+    url = re.sub(r'#.*', '', url)
+    return url
 
 
 class Notifier:
@@ -331,7 +338,7 @@ class Notifier:
                 emoji = "🔥" if listing.is_great_deal else "💰"
                 e["fields"].append({
                     "name": f"{emoji} #{rank} — ${listing.price_usd:,.0f} | {listing.source}",
-                    "value": f"[{listing.title[:80]}]({listing.url}) — Score: {listing.deal_score}/100",
+                    "value": f"[{listing.title[:80]}]({clean_url(listing.url)}) — Score: {listing.deal_score}/100",
                     "inline": False,
                 })
             return e
