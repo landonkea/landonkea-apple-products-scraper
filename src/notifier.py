@@ -11,6 +11,8 @@
 
 import smtplib
 import json
+import os
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
@@ -349,14 +351,68 @@ class Notifier:
         
         # Send to Discord
         response = requests.post(
-            webhook_url,
+            webhook_url + "?wait=true",
             data=json.dumps(payload),
             headers={"Content-Type": "application/json"},
             timeout=15,
         )
         
-        if response.status_code == 204:
+        if response.status_code in (200, 204):
             print("  [Notifier] Discord message sent ✅")
+            # Store message ID for cleanup
+            self._store_message_id(response)
         else:
             print(f"  [Notifier] Discord error: {response.status_code} "
                   f"{response.text[:200]}")
+        
+        # Clean up old messages
+        self._cleanup_old_messages(webhook_url)
+    
+    def _store_message_id(self, response: requests.Response):
+        """Save the Discord message ID for later cleanup."""
+        try:
+            msg = response.json()
+            msg_id = msg.get("id")
+            if not msg_id:
+                return
+            path = "data/discord_messages.json"
+            messages = []
+            if os.path.exists(path):
+                with open(path) as f:
+                    messages = json.load(f)
+            messages.append({
+                "id": msg_id,
+                "ts": time.time(),
+            })
+            # Keep only last 50
+            messages = messages[-50:]
+            os.makedirs("data", exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(messages, f)
+        except Exception:
+            pass
+    
+    def _cleanup_old_messages(self, webhook_url: str):
+        """Delete Discord messages older than 48 hours."""
+        path = "data/discord_messages.json"
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path) as f:
+                messages = json.load(f)
+            cutoff = time.time() - 48 * 3600
+            remaining = []
+            for msg in messages:
+                if msg["ts"] < cutoff:
+                    # Delete old message
+                    delete_url = f"{webhook_url}/messages/{msg['id']}"
+                    try:
+                        requests.delete(delete_url, timeout=10)
+                    except Exception:
+                        pass
+                else:
+                    remaining.append(msg)
+            with open(path, "w") as f:
+                json.dump(remaining, f)
+        except Exception:
+            pass

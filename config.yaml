@@ -13,10 +13,10 @@
 # and alerts you about the best deals on each one.
 # Add a new entry to search for a different product.
 searches:
-  # ── MacBook Pro (14" and 16", any chip/RAM) ──────────────────
+  # ── MacBook Pro (14" and 16", M4 Max or M5 Max only) ────────
   - product_name: "MacBook Pro"
-    chip: ~
-    chip_fallback: ~
+    chip: "M4 Max"
+    chip_fallback: "M5 Max"
     screen_sizes: [14, 16]
     ram_gb_primary: ~
     ram_gb_fallback: ~
