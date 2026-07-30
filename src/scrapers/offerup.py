@@ -62,8 +62,10 @@ class OfferUpScraper(BaseScraper):
         Load the OfferUp search page and extract listing data from
         the embedded Next.js state (__NEXT_DATA__).
         
-        Uses the shared Playwright helper from BaseScraper, then
-        extracts __NEXT_DATA__ from the rendered HTML.
+        Playwright renders the page, then we extract the JSON data
+        that Next.js embeds in a <script> tag.  This data contains
+        all the listings the page would show, even if the visual
+        render is blocked by anti-bot.
         
         Args:
             url: The OfferUp search URL.
@@ -71,52 +73,106 @@ class OfferUpScraper(BaseScraper):
         Returns:
             A list of listing dicts from the search results.
         """
-        html = self.fetch_with_playwright(url, timeout=45000)
-        if not html:
-            print("  [OfferUp] Empty page")
-            return []
+        from playwright.sync_api import sync_playwright
         
-        soup = self.parse_html(html)
-        next_script = soup.select_one("script#__NEXT_DATA__")
-        
-        if not next_script:
-            # Try more specific URL as fallback
-            chip = self.config.search.chip or "M5 Max"
-            ram = self.config.search.ram_gb_primary or 128
-            specific_query = f"MacBook Pro {chip} {ram}GB"
-            specific_url = f"https://offerup.com/search/?q={specific_query.replace(' ', '+')}"
-            print(f"  [OfferUp] Trying fallback URL: {specific_url[:80]}")
-            
-            html = self.fetch_with_playwright(specific_url, timeout=45000)
-            if not html:
-                print("  [OfferUp] Empty fallback page")
-                return []
-            soup = self.parse_html(html)
-            next_script = soup.select_one("script#__NEXT_DATA__")
-        
-        if not next_script:
-            print(f"  [OfferUp] No __NEXT_DATA__ found on page")
-            return []
-        
-        # Parse the JSON and extract listings
         try:
-            data = json.loads(next_script.string)
-        except (json.JSONDecodeError, TypeError) as e:
-            print(f"  [OfferUp] JSON parse error: {e}")
-            return []
-        
-        page_props = data.get("props", {}).get("pageProps", {})
-        feed = page_props.get("searchFeedResponse", {})
-        loose_tiles = feed.get("looseTiles", [])
-        
-        listings = []
-        for tile in loose_tiles:
-            if tile.get("__typename") == "ModularFeedTileListing":
-                listing_data = tile.get("listing", {})
-                if listing_data and listing_data.get("title"):
-                    listings.append(listing_data)
-        
-        return listings
+            with sync_playwright() as playwright:
+                # ── Launch Chromium with stealth flags ────────────
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                    ],
+                )
+                
+                # ── Create realistic browser context ─────────────
+                context = browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/125.0.0.0 Safari/537.36"
+                    ),
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US",
+                )
+                
+                page = context.new_page()
+                
+                # ── Navigate to the search page ──────────────────
+                page.goto(url, wait_until="load", timeout=30000)
+                
+                # Allow time for JavaScript to execute and populate
+                # the __NEXT_DATA__ JSON.
+                page.wait_for_timeout(5000)
+                
+                # ── Extract the Next.js state JSON ──────────────
+                next_data_json = page.evaluate("""
+                    () => {
+                        const el = document.getElementById('__NEXT_DATA__');
+                        return el ? el.textContent : null;
+                    }
+                """)
+                
+                browser.close()
+                
+                if not next_data_json:
+                    # Try more specific URL as fallback
+                    chip = self.config.search.chip or "M5 Max"
+                    ram = self.config.search.ram_gb_primary or 128
+                    specific_query = f"MacBook Pro {chip} {ram}GB"
+                    specific_url = f"https://offerup.com/search/?q={specific_query.replace(' ', '+')}"
+                    print(f"  [OfferUp] Trying fallback URL: {specific_url[:80]}")
+                    
+                    with sync_playwright() as pw2:
+                        b2 = pw2.chromium.launch(
+                            headless=True,
+                            args=["--no-sandbox", "--disable-setuid-sandbox"],
+                        )
+                        c2 = b2.new_context(
+                            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                            viewport={"width": 1920, "height": 1080},
+                            locale="en-US",
+                        )
+                        p2 = c2.new_page()
+                        p2.goto(specific_url, wait_until="load", timeout=30000)
+                        p2.wait_for_timeout(5000)
+                        
+                        next_data_json = p2.evaluate("""
+                            () => {
+                                const el = document.getElementById('__NEXT_DATA__');
+                                return el ? el.textContent : null;
+                            }
+                        """)
+                        b2.close()
+                
+                if not next_data_json:
+                    print("  [OfferUp] No __NEXT_DATA__ found on page")
+                    return []
+                
+                # ── Parse the JSON and extract listings ─────────
+                data = json.loads(next_data_json)
+                
+                # Navigate through the Next.js data structure
+                page_props = data.get("props", {}).get("pageProps", {})
+                feed = page_props.get("searchFeedResponse", {})
+                loose_tiles = feed.get("looseTiles", [])
+                
+                # Filter for listing tiles (not ads)
+                listings = []
+                for tile in loose_tiles:
+                    if tile.get("__typename") == "ModularFeedTileListing":
+                        listing_data = tile.get("listing", {})
+                        if listing_data and listing_data.get("title"):
+                            listings.append(listing_data)
+                
+                return listings
+                
+        except Exception as e:
+            raise Exception(
+                f"Playwright error: {e}. "
+                f"Install: pip install playwright && playwright install chromium"
+            ) from e
     
     def _parse_listing(self, item: dict) -> Optional[ScrapedListing]:
         """
