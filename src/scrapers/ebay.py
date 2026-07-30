@@ -80,24 +80,7 @@ class eBayScraper(BaseScraper):
         Returns:
             The page HTML as a string.
         """
-        from playwright.sync_api import sync_playwright
-        
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"],
-            )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US",
-            )
-            page = context.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000)
-            html = page.content()
-            browser.close()
-            return html
+        return self.fetch_with_playwright(url)
     
     def scrape(self) -> list[ScrapedListing]:
         """
@@ -132,6 +115,14 @@ class eBayScraper(BaseScraper):
             
             soup = self.parse_html(html)
             items = soup.select("li.s-item")
+            if not items:
+                items = soup.select("div.s-item")
+            if not items:
+                items = soup.select("[class*='s-item']")
+            if not items:
+                items = soup.select("li[data-viewport]")
+            if not items:
+                items = soup.select("div[data-viewport]")
             
             results_for_size = 0
             max_results = self.config.search.results_per_size

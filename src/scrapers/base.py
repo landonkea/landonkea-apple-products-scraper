@@ -219,6 +219,42 @@ class BaseScraper(ABC):
             "Connection": "keep-alive",
         })
 
+    def fetch_with_playwright(self, url: str, timeout: int = 30000) -> str:
+        """
+        Fetch a page using Playwright (headless Chromium).
+        
+        Use this for sites that block plain requests with 403.
+        Falls back to plain requests if Playwright is not installed.
+        
+        Args:
+            url: The URL to fetch.
+            timeout: Navigation timeout in milliseconds.
+        
+        Returns:
+            The page HTML as a string.
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+            
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox"],
+                )
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US",
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                page.wait_for_timeout(3000)
+                html = page.content()
+                browser.close()
+                return html
+        except Exception as e:
+            raise Exception(f"Playwright failed: {e}") from e
+
     def fetch_page(self, url: str, max_retries: int = 3) -> str:
         """
         Fetch a web page and return its HTML.

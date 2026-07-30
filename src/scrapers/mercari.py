@@ -55,10 +55,21 @@ class MercariScraper(BaseScraper):
         
         for screen_size in self.config.search.screen_sizes:
             url = self._build_search_url(screen_size)
+            html = None
             
             try:
-                html = self.fetch_page(url)
-                soup = self.parse_html(html)
+                html = self.fetch_with_playwright(url)
+            except Exception as e:
+                print(f"  [Mercari] Playwright failed: {e}, trying plain request...")
+                try:
+                    html = self.fetch_page(url)
+                except Exception as e2:
+                    print(f"  [Mercari] Plain request also failed: {e2}")
+                    continue
+            
+            if not html:
+                continue
+            soup = self.parse_html(html)
                 
                 cards = soup.select("[data-testid='item-card'], .item-card")
                 if not cards:

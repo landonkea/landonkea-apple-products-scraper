@@ -118,13 +118,21 @@ class BestBuyScraper(BaseScraper):
         
         for screen_size in self.config.search.screen_sizes:
             search_url = self._build_search_url(screen_size)
+            html = None
             
             try:
-                html = self.fetch_page(search_url)
-                soup = self.parse_html(html)
+                html = self.fetch_with_playwright(search_url)
             except Exception as e:
-                print(f"  [Best Buy] Error fetching search page: {e}")
+                print(f"  [Best Buy] Playwright failed: {e}, trying plain request...")
+                try:
+                    html = self.fetch_page(search_url)
+                except Exception as e2:
+                    print(f"  [Best Buy] Plain request also failed: {e2}")
+                    continue
+            
+            if not html:
                 continue
+            soup = self.parse_html(html)
             
             items = soup.select("li.sku-item")
             if not items:
