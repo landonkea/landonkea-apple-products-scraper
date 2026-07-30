@@ -156,7 +156,9 @@ class OfferUpScraper(BaseScraper):
         
         if not success:
             # Try a more specific search as fallback
-            specific_query = f"MacBook Pro {self.config.search.product_name}"
+            chip = self.config.search.chip or "M5 Max"
+            ram = self.config.search.ram_gb_primary or 128
+            specific_query = f"MacBook Pro {chip} {ram}GB"
             specific_url = f"https://offerup.com/search/?q={specific_query.replace(' ', '+')}"
             print(f"  [OfferUp] Trying fallback URL: {specific_url[:80]}")
             success, result = self._load_page_and_extract(specific_url)
