@@ -77,7 +77,6 @@ class OfferUpScraper(BaseScraper):
         
         urls_to_try = [url]
         
-        # Build fallback URL with more specific query
         chip = self.config.search.chip or "M5 Max"
         ram = self.config.search.ram_gb_primary or 128
         specific_query = f"MacBook Pro {chip} {ram}GB"
@@ -89,14 +88,16 @@ class OfferUpScraper(BaseScraper):
         
         try:
             with sync_playwright() as playwright:
-                browser = playwright.firefox.launch(
+                browser = playwright.chromium.launch(
                     headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox"],
                 )
                 
                 context = browser.new_context(
                     user_agent=(
-                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) "
-                        "Gecko/20100101 Firefox/151.0"
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/125.0.0.0 Safari/537.36"
                     ),
                     viewport={"width": 1920, "height": 1080},
                     locale="en-US",
@@ -129,7 +130,7 @@ class OfferUpScraper(BaseScraper):
         if last_error:
             raise Exception(
                 f"Playwright error: {last_error}. "
-                f"Install: pip install playwright && playwright install firefox"
+                f"Install: pip install playwright && playwright install chromium"
             ) from last_error
         
         if not next_data_json:

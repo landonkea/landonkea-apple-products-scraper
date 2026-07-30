@@ -68,7 +68,7 @@ jobs:
       # 4. Install Playwright browsers (needed for OfferUp scraper)
       - name: Install Playwright browsers
         run: |
-          playwright install --with-deps firefox chromium
+          playwright install --with-deps chromium
       
       # 5. Run the scraper
       - name: Run scraper

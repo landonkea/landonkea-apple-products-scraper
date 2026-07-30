@@ -1,11 +1,3 @@
-# ───────────────────────────────────────────────────────────────────
-# Swappa scraper
-# ───────────────────────────────────────────────────────────────────
-# Swappa is a marketplace for used/refurbished devices.
-# They have a public API that returns JSON — much easier than
-# scraping HTML.  No login required for browsing.
-# ───────────────────────────────────────────────────────────────────
-
 import re
 from typing import Optional
 
@@ -14,179 +6,141 @@ from config import Config
 
 
 class SwappaScraper(BaseScraper):
-    """
-    Scrapes Swappa for MacBook Pro M5 Max listings.
-    
-    Swappa has a JSON API endpoint:
-      https://swappa.com/api/macbook-pro/m5-max/listings
-    
-    This returns structured data we can parse directly.
-    """
-    
+
+    BASE_URL = "https://swappa.com"
+
     def __init__(self, config: Config):
-        """Initialize the Swappa scraper."""
         super().__init__(config)
         self.source_name = "swappa"
-        
-        # Swappa uses an API key even for public endpoints.
-        # We send a reasonable User-Agent instead.
-        # If Swappa blocks us, we'll need a real API key.
-        self.api_base = "https://swappa.com/api"
-    
-    def _fetch_listings_json(self) -> list[dict]:
-        """
-        Fetch listings from Swappa's API.
-        
-        Swappa organizes devices by type, then chip, then generation.
-        For M5 Max MacBook Pro:
-          /api/macbook-pro/m5-max/listings
-        
-        Returns:
-            A list of listing dicts from the API.
-        """
-        listings = []
-        
-        # Build the API URL for M5 Max MacBook Pro listings
-        api_url = f"{self.api_base}/macbook-pro/m5-max/listings"
-        
-        try:
-            # Fetch JSON directly (not HTML)
-            import time
-            time.sleep(1.0)
-            
-            response = self.session.get(api_url, timeout=30)
-            
-            if response.status_code == 200:
-                data = response.json()
-                # Swappa API returns listings in a "listings" key
-                listings = data.get("listings", data.get("results", []))
-            
-        except Exception as e:
-            print(f"  [Swappa] Error: {e}")
-            
-            # Fallback: try HTML scraping if API fails
-            try:
-                listings = self._scrape_html_fallback()
-            except Exception:
-                pass
-        
-        return listings
-    
-    def _scrape_html_fallback(self) -> list[dict]:
-        """
-        Fallback method: scrape Swappa's HTML search page.
-        
-        Used if the JSON API returns an error.
-        
-        Returns:
-            A list of listing dicts (simulated from HTML).
-        """
-        fallback_listings = []
-        
-        # Search for M5 Max MacBook Pro on Swappa
-        search_url = (
-            "https://swappa.com/search?q=macbook+pro+m5+max+14+inch"
-        )
-        
+        self.target_screens = config.search.screen_sizes or [14, 16]
+
+    def _build_search_url(self) -> str:
+        return f"{self.BASE_URL}/buy/macbooks/macbook-pro?sort=price_asc"
+
+    def _fetch_listings_json(self, search_url: str) -> list[dict]:
         html = self.fetch_page(search_url)
         soup = self.parse_html(html)
-        
-        # Swappa listing cards use a specific class structure
-        cards = soup.select("div.listing-card, div[data-listing]")
-        
-        for card in cards:
-            try:
-                listing_data = self._parse_html_card(card)
-                if listing_data:
-                    fallback_listings.append(listing_data)
-            except Exception:
+
+        slugs: list[str] = []
+        for card in soup.select("div.card.card_product"):
+            title_el = card.select_one(".card-title.title")
+            if not title_el:
                 continue
-        
-        return fallback_listings
-    
-    def _parse_html_card(self, card) -> Optional[dict]:
-        """
-        Parse a Swappa listing card from HTML.
-        
-        Args:
-            card: A BeautifulSoup tag for one listing.
-        
-        Returns:
-            A dict with listing data, or None.
-        """
-        # Title
-        title_elem = card.select_one("h3, .listing-title")
-        if not title_elem:
+            title = title_el.get_text(strip=True)
+            if not any(str(size) in title for size in self.target_screens):
+                continue
+
+            sku_el = card.select_one('meta[itemprop="sku"]')
+            slug = sku_el.get("content", "") if sku_el else ""
+            if not slug:
+                link = card.select_one("a")
+                if link and link.get("href", "").startswith("/listings/"):
+                    slug = link["href"].replace("/listings/", "")
+            if slug:
+                slugs.append(slug)
+
+        all_listings: list[dict] = []
+        for slug in slugs:
+            listings_url = f"{self.BASE_URL}/listings/{slug}"
+            try:
+                listings_html = self.fetch_page(listings_url)
+                listings_soup = self.parse_html(listings_html)
+                for card in listings_soup.select("div.card.xui_card.xui_card_listing"):
+                    listing = self._parse_listing(card)
+                    if listing:
+                        all_listings.append(listing)
+            except Exception as e:
+                print(f"  [Swappa] Error fetching listings for {slug}: {e}")
+                continue
+
+        return all_listings
+
+    def _parse_listing(self, card) -> Optional[dict]:
+        img = card.select_one("img[alt]")
+        title = img.get("alt", "") if img else ""
+        if not title:
+            title_el = card.select_one("div.headline")
+            title = title_el.get_text(strip=True) if title_el else ""
+        if not title:
             return None
-        title = title_elem.get_text(strip=True)
-        
-        # Price
-        price_elem = card.select_one(".price, .listing-price")
-        if not price_elem:
+
+        price_el = card.select_one('div.price span[itemprop="price"]')
+        if not price_el:
             return None
-        price_text = price_elem.get_text(strip=True).replace("$", "").replace(",", "")
+        price_text = price_el.get_text(strip=True).replace("$", "").replace(",", "")
         try:
             price = float(price_text)
         except ValueError:
             return None
-        
-        # URL
-        link = card.select_one("a")
-        url = link.get("href", "") if link else ""
+
+        link_el = card.select_one("div.price a")
+        url = link_el.get("href", "") if link_el else ""
         if url and not url.startswith("http"):
-            url = f"https://swappa.com{url}"
-        
-        # Condition is usually shown as a badge
-        condition_elem = card.select_one(".condition, .badge")
-        condition = condition_elem.get_text(strip=True) if condition_elem else None
-        
+            url = f"{self.BASE_URL}{url}"
+
+        id_el = card.select_one("span.code.ms-2")
+        listing_id = id_el.get_text(strip=True) if id_el else ""
+        if not listing_id:
+            m = re.search(r'/listing/view/([A-Z0-9]+)', url)
+            if m:
+                listing_id = m.group(1)
+
+        location_el = card.select_one("div.ships_from")
+        location = location_el.get_text(strip=True) if location_el else None
+
+        attr_els = card.select("div.attrs span.attr")
+        attrs = [a.get_text(strip=True) for a in attr_els] if attr_els else []
+
+        condition = attrs[0] if len(attrs) > 0 else None
+
+        raw_storage = attrs[1] if len(attrs) > 1 else ""
+        raw_ram = attrs[2] if len(attrs) > 2 else ""
+        raw_chip = attrs[3] if len(attrs) > 3 else ""
+
+        storage_gb = None
+        if raw_storage:
+            m = re.search(r'(\d+)\s*(?:GB|TB)', raw_storage)
+            if m:
+                val = int(m.group(1))
+                storage_gb = val * 1024 if "TB" in raw_storage.upper() else val
+
+        ram_gb = None
+        if raw_ram:
+            m = re.search(r'(\d+)\s*GB', raw_ram)
+            if m:
+                ram_gb = int(m.group(1))
+
+        chip = None
+        if raw_chip:
+            chip = raw_chip.replace("Apple ", "").strip()
+
         return {
             "title": title,
             "price": price,
             "url": url,
             "condition": condition,
+            "listing_id": listing_id,
+            "location": location,
+            "ram_gb": ram_gb,
+            "storage_gb": storage_gb,
+            "chip": chip,
         }
-    
+
     def _parse_item(self, item: dict) -> Optional[ScrapedListing]:
-        """
-        Convert a Swappa API listing dict into a ScrapedListing.
-        
-        Args:
-            item: A listing dict from the Swappa API.
-        
-        Returns:
-            A ScrapedListing or None.
-        """
-        # ── Title ───────────────────────────────────────────────
-        title = item.get("title", "") or item.get("name", "")
+        title = item.get("title", "")
         if not title:
             return None
-        
-        # ── Price ───────────────────────────────────────────────
-        price = item.get("price", 0)
-        if isinstance(price, str):
-            price = float(price.replace("$", "").replace(",", ""))
-        
-        # ── URL ─────────────────────────────────────────────────
-        # Swappa URLs look like https://swappa.com/listing/XXXXX
-        listing_path = item.get("url", item.get("slug", ""))
-        if listing_path and not listing_path.startswith("http"):
-            url = f"https://swappa.com{listing_path}"
-        else:
-            url = listing_path or ""
-        
-        # ── Listing ID ──────────────────────────────────────────
-        listing_id = str(item.get("id", item.get("listing_id", hash(title))))
-        
-        # ── Condition ───────────────────────────────────────────
-        condition = item.get("condition", item.get("item_condition"))
-        
-        # ── Parse specs from title ──────────────────────────────
-        ram = self.extract_ram(title)
-        storage = self.extract_storage(title)
+
+        price = item["price"]
+        url = item.get("url", "")
+        condition = item.get("condition")
+        listing_id = item.get("listing_id", str(hash(title)))
+        location = item.get("location")
+        ram = item.get("ram_gb") or self.extract_ram(title)
+        storage = item.get("storage_gb") or self.extract_storage(title)
         screen = self.extract_screen(title)
-        chip = self.extract_chip(title)
-        
+        chip = item.get("chip") or self.extract_chip(title)
+
         return ScrapedListing(
             source=self.source_name,
             listing_id=listing_id,
@@ -198,34 +152,30 @@ class SwappaScraper(BaseScraper):
             storage_gb=storage,
             screen_size=screen,
             chip=chip,
-            location=None,
+            location=location,
         )
-    
+
     def scrape(self) -> list[ScrapedListing]:
-        """
-        Scrape Swappa for MacBook Pro listings sorted by price.
-        
-        Returns:
-            A list of ScrapedListing objects.
-        """
         found: list[ScrapedListing] = []
         found_ids: set = set()
-        
-        # Try the JSON API first
+
+        search_url = self._build_search_url()
+
         try:
-            listings_data = self._fetch_listings_json()
-            
-            for item in listings_data:
-                try:
-                    listing = self._parse_item(item)
-                    if listing and listing.listing_id not in found_ids:
-                        if self.passes_filters(listing):
-                            found.append(listing)
-                            found_ids.add(listing.listing_id)
-                except Exception:
-                    continue
+            raw_listings = self._fetch_listings_json(search_url)
         except Exception as e:
-            print(f"  [Swappa] Error parsing listings: {e}")
-        
+            print(f"  [Swappa] Error fetching listings: {e}")
+            return found
+
+        for item in raw_listings:
+            try:
+                listing = self._parse_item(item)
+                if listing and listing.listing_id not in found_ids:
+                    if self.passes_filters(listing):
+                        found.append(listing)
+                        found_ids.add(listing.listing_id)
+            except Exception:
+                continue
+
         print(f"  [Swappa] Found {len(found)} matching listings")
         return found

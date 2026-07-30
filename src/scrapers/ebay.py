@@ -68,19 +68,57 @@ class eBayScraper(BaseScraper):
             return f"p_{match.group(1)}"
         return f"url_{hash(url)}"
     
-    def _fetch_with_playwright(self, url: str) -> str:
+    def _fetch_listings_json(self, search_url: str) -> str:
         """
-        Use Playwright to render an eBay search page.
+        Fetch eBay search results using Playwright.
         
-        This bypasses eBay's bot detection that blocks plain requests.
+        Warms up with the homepage first (sets cookies, passes bot
+        check) in the SAME browser session, then navigates to the
+        actual search URL.  Cookies carry over because we keep the
+        browser open.
         
         Args:
-            url: The eBay search URL.
+            search_url: The eBay search URL to scrape.
         
         Returns:
-            The page HTML as a string.
+            The search page HTML as a string.
         """
-        return self.fetch_with_playwright(url)
+        try:
+            from playwright.sync_api import sync_playwright
+            
+            with sync_playwright() as playwright:
+                # Launch a headless Chromium browser
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox"],
+                )
+                
+                # Create a real-looking browser context
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US",
+                )
+                page = context.new_page()
+                
+                # Step 1: Warm up with the homepage
+                # This sets eBay session cookies and proves we are
+                # a real browser, not a bot.
+                page.goto("https://www.ebay.com", wait_until="domcontentloaded", timeout=15000)
+                page.wait_for_timeout(3000)
+                
+                # Step 2: Navigate to the actual search URL
+                # The session cookies from step 1 carry over.
+                page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(3000)
+                
+                # Get the page HTML
+                html = page.content()
+                browser.close()
+                return html
+                
+        except Exception as e:
+            raise Exception(f"Playwright failed: {e}") from e
     
     def scrape(self) -> list[ScrapedListing]:
         """
@@ -101,7 +139,7 @@ class eBayScraper(BaseScraper):
             
             # Try Playwright first (bypasses bot detection)
             try:
-                html = self._fetch_with_playwright(search_url)
+                html = self._fetch_listings_json(search_url)
             except Exception as e:
                 print(f"  [eBay] Playwright failed: {e}, trying plain request...")
                 try:
@@ -114,11 +152,11 @@ class eBayScraper(BaseScraper):
                 continue
             
             soup = self.parse_html(html)
-            items = soup.select("li.s-item")
+            items = soup.select("li.s-card")
             if not items:
-                items = soup.select("div.s-item")
+                items = soup.select("div.s-card")
             if not items:
-                items = soup.select("[class*='s-item']")
+                items = soup.select("[class*='s-card']")
             if not items:
                 items = soup.select("li[data-viewport]")
             if not items:
@@ -153,8 +191,8 @@ class eBayScraper(BaseScraper):
         Returns:
             A ScrapedListing or None if parsing fails.
         """
-        title_elem = item.select_one("a.s-item__link .s-item__title")
-        link_elem = item.select_one("a.s-item__link")
+        title_elem = item.select_one(".s-card__title")
+        link_elem = item.select_one(".su-card-container__header a.s-card__link")
         
         if not title_elem or not link_elem:
             return None
@@ -168,7 +206,7 @@ class eBayScraper(BaseScraper):
         if "contact seller" in title.lower():
             return None
         
-        price_elem = item.select_one(".s-item__price")
+        price_elem = item.select_one(".s-card__price")
         if not price_elem:
             return None
         
@@ -184,7 +222,7 @@ class eBayScraper(BaseScraper):
         
         listing_id = self._parse_listing_id(url)
         
-        condition_elem = item.select_one(".s-item__condition")
+        condition_elem = item.select_one(".s-card__subtitle")
         condition = condition_elem.get_text(strip=True) if condition_elem else None
         
         ram = self.extract_ram(title)

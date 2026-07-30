@@ -258,7 +258,9 @@ class BaseScraper(ABC):
             "User-Agent": ua,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
+            # Let requests/urllib3 manage Accept-Encoding automatically.
+            # Explicitly setting "br" breaks if the brotli package is
+            # not installed — requests returns raw compressed bytes.  
             "Sec-Ch-Ua": '"Not/A)Brand";v="99", "Google Chrome";v="125", "Chromium";v="125"',
             "Sec-Ch-Ua-Mobile": "?0",
             "Sec-Ch-Ua-Platform": '"macOS"',
