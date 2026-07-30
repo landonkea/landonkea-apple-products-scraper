@@ -82,10 +82,13 @@ def extract_ram_gb(title: str) -> Optional[int]:
     # RAM size (not storage).  MacBook Pro RAM configs are:
     # 8, 16, 24, 32, 36, 48, 64, 96, 128, 192
     # Storage always starts at 256+ GB.
-    generic_match = re.search(r'(\d+)\s*GB', title, re.IGNORECASE)
-    if generic_match:
-        val = int(generic_match.group(1))
-        # Common RAM sizes: under 256
+    all_gb = re.findall(r'(\d+)\s*GB', title, re.IGNORECASE)
+    for val_str in all_gb:
+        val = int(val_str)
+        if val in (8, 16, 24, 32, 36, 48, 64, 96, 128, 192):
+            return val
+    for val_str in all_gb:
+        val = int(val_str)
         if val <= 256:
             return val
     
@@ -117,12 +120,14 @@ def extract_storage_gb(title: str) -> Optional[int]:
         r'(\d+)\s*GB\s*(?:SSD|Storage)', title, re.IGNORECASE
     )
     if gb_storage:
-        return int(gb_storage.group(1))
+        val = int(gb_storage.group(1))
+        if val >= 256:
+            return val
     
     # Pattern 3: "N GB" with N >= 256 (only storage is this big)
-    gb_generic = re.search(r'(\d+)\s*GB', title, re.IGNORECASE)
-    if gb_generic:
-        val = int(gb_generic.group(1))
+    all_gb = re.findall(r'(\d+)\s*GB', title, re.IGNORECASE)
+    for val_str in all_gb:
+        val = int(val_str)
         if val >= 256:
             return val
     
@@ -153,8 +158,12 @@ def extract_chip(title: str) -> Optional[str]:
     Find the chip name in a listing title.
     
     Looks for "M5 Max", "M4 Max", "M5 Pro", etc.
+    Also matches plain "M4", "M5" without suffix.
     """
     match = re.search(r'(M[1-5]\s*(?:Pro|Max|Ultra))', title, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    match = re.search(r'\b(M[1-5])\b', title, re.IGNORECASE)
     if match:
         return match.group(1).strip()
     return None
