@@ -183,6 +183,15 @@ ACCESSORY_KEYWORDS = [
     "screen only", "cracked", "water damage",
 ]
 
+IPHONE_BAD_KEYWORDS = [
+    "locked", "icloud", "activation lock",
+    "for parts", "not working", "broken", "cracked", "damaged",
+    "water damage", "for repair", "as is", "parts only",
+    "repair needed", "stolen", "blacklisted",
+    "hardware locked", "sim locked", "carrier locked",
+    "network locked", "bad imei",
+]
+
 # Minimum price for a real computer (anything cheaper is an accessory/part)
 MINIMUM_PRICE_USD = 200
 
@@ -226,6 +235,22 @@ def is_likely_macbook_pro(title: str) -> bool:
     if not (has_chip or has_screen or has_ram or has_storage):
         return False
     
+    return True
+
+
+def is_likely_iphone(title: str) -> bool:
+    title_lower = title.lower()
+    if "iphone" not in title_lower:
+        return False
+    locked = "locked" in title_lower and "unlocked" not in title_lower
+    for kw in IPHONE_BAD_KEYWORDS:
+        kw_lower = kw.lower()
+        if kw_lower == "locked":
+            continue
+        if kw_lower in title_lower:
+            return False
+    if locked:
+        return False
     return True
 
 
@@ -448,11 +473,13 @@ class BaseScraper(ABC):
             if not is_likely_macbook_pro(listing.title):
                 return False
         elif "iphone" in product_lower:
-            if "iphone" not in title_lower:
+            if not is_likely_iphone(listing.title):
                 return False
         
         # Check chip (only if a chip filter is configured)
-        if s.chip and listing.chip:
+        if s.chip:
+            if not listing.chip:
+                return False
             chip_primary = s.chip.lower()
             chip_primary_ok = chip_primary in listing.chip.lower()
             chip_fallback_ok = False

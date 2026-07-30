@@ -299,12 +299,23 @@ class Notifier:
         
         # ── Build the Discord embed message ─────────────────────
         # Discord uses "embeds" for rich formatting.
+        # Total embed size limit is 6000 characters.
         
         best = top_deals[0] if top_deals else None
+
+        # Build compact text block for all top deals
+        deal_lines = []
+        for i, listing in enumerate(top_deals[:25], 1):
+            emoji = "🔥" if listing.is_great_deal else "💰"
+            title_short = listing.title[:50]
+            line = f"{emoji} #{i} — **${listing.price_usd:,.0f}** — [{title_short}]({listing.url}) — {listing.source}"
+            deal_lines.append(line)
+        deals_text = "\n".join(deal_lines)
         
         embed = {
             "title": "🎯 MacBook Pro Deal Alert",
             "color": 0x00ff00 if best and best.is_great_deal else 0xffaa00,
+            "description": deals_text[:5800],
             "fields": [
                 {
                     "name": "📊 Market Snapshot",
@@ -322,23 +333,6 @@ class Notifier:
             },
             "timestamp": self.config.secrets.get("timestamp", ""),
         }
-        
-        # Add top deals as fields (Discord allows up to 25 fields, but embed size limit is 6000 chars)
-        for i, listing in enumerate(top_deals[:5], 1):
-            emoji = "🔥" if listing.is_great_deal else "💰"
-            ram = f"{listing.ram_gb}GB" if listing.ram_gb else "?"
-            
-            embed["fields"].append({
-                "name": (
-                    f"{emoji} #{i} — ${listing.price_usd:,.0f} "
-                    f"| {listing.source}"
-                ),
-                "value": (
-                    f"[{listing.title[:80]}]({listing.url})\n"
-                    f"Score: {listing.deal_score}/100"
-                ),
-                "inline": False,
-            })
         
         # Build the payload
         payload = {
