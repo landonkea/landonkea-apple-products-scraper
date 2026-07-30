@@ -30,6 +30,11 @@ on:
   # ── Manual trigger: allows running from GitHub UI ────────────
   workflow_dispatch:
 
+# ── Permissions ─────────────────────────────────────────────────
+# Needed to commit the database file back to the repo
+permissions:
+  contents: write
+
 # ── What to run ──────────────────────────────────────────────────
 jobs:
   scrape:
