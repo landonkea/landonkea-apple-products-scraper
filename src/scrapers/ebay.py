@@ -28,7 +28,7 @@ class eBayScraper(BaseScraper):
         super().__init__(config)
         self.source_name = "ebay"
     
-    def _build_search_url(self, screen_size: int) -> str:
+    def _build_search_url(self, screen_size: Optional[int]) -> str:
         """
         Build an eBay search URL for a specific screen size.
         
@@ -36,7 +36,7 @@ class eBayScraper(BaseScraper):
         sorted by lowest price + shipping first.
         
         Args:
-            screen_size: Screen size in inches (14 or 16).
+            screen_size: Screen size in inches (14 or 16), or None for products without screen sizes.
         
         Returns:
             A fully-formed eBay search URL sorted by price ascending.
@@ -44,7 +44,10 @@ class eBayScraper(BaseScraper):
         product = self.config.search.product_name
         max_price = int(self.config.price.absolute_max_usd)
         
-        query = f"{product} {screen_size}-inch"
+        if screen_size:
+            query = f"{product} {screen_size}-inch"
+        else:
+            query = product
         encoded_query = query.replace(" ", "+")
         
         url = (
@@ -133,7 +136,10 @@ class eBayScraper(BaseScraper):
         found: list[ScrapedListing] = []
         found_ids: set = set()
         
-        for screen_size in self.config.search.screen_sizes:
+        screen_sizes = self.config.search.screen_sizes
+        sizes_to_search = screen_sizes if screen_sizes else [None]
+        
+        for screen_size in sizes_to_search:
             search_url = self._build_search_url(screen_size)
             html = None
             

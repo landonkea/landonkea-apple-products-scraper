@@ -12,10 +12,16 @@ class SwappaScraper(BaseScraper):
     def __init__(self, config: Config):
         super().__init__(config)
         self.source_name = "swappa"
-        self.target_screens = config.search.screen_sizes or [14, 16]
+        self.target_screens = config.search.screen_sizes
 
-    def _build_search_url(self) -> str:
-        return f"{self.BASE_URL}/buy/macbooks/macbook-pro?sort=price_asc"
+    def _build_search_url(self, screen_size: Optional[int] = None) -> str:
+        if screen_size:
+            return f"{self.BASE_URL}/buy/macbooks/macbook-pro?sort=price_asc"
+        else:
+            product = self.config.search.product_name
+            slug = product.lower().replace(" ", "-")
+            category = "iphones" if "iphone" in product.lower() else slug
+            return f"{self.BASE_URL}/buy/{category}/{slug}?sort=price_asc"
 
     def _fetch_listings_json(self, search_url: str) -> list[dict]:
         html = self.fetch_page(search_url)
@@ -27,7 +33,7 @@ class SwappaScraper(BaseScraper):
             if not title_el:
                 continue
             title = title_el.get_text(strip=True)
-            if not any(str(size) in title for size in self.target_screens):
+            if self.target_screens and not any(str(size) in title for size in self.target_screens):
                 continue
 
             sku_el = card.select_one('meta[itemprop="sku"]')
@@ -159,7 +165,9 @@ class SwappaScraper(BaseScraper):
         found: list[ScrapedListing] = []
         found_ids: set = set()
 
-        search_url = self._build_search_url()
+        screen_sizes = self.config.search.screen_sizes
+        sizes_to_search = screen_sizes if screen_sizes else [None]
+        search_url = self._build_search_url(sizes_to_search[0])
 
         try:
             raw_listings = self._fetch_listings_json(search_url)

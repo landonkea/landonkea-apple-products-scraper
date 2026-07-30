@@ -175,7 +175,16 @@ ACCESSORY_KEYWORDS = [
     "keyboard", "mouse", "trackpad", "screen protector", "tempered glass",
     "stand", "mount", "arm", "holder", "tray", "shell", "hard shell",
     "battery", "replacement battery", "strap", "backpack",
+    "logic board", "motherboard", "lcd", "display", "digitizer",
+    "flex cable", "ribbon cable", "hinge", "palm rest", "top case",
+    "bottom case", "fan", "speaker", "wrist rest", "bezel",
+    "repair", "replacement", "parts", "for parts", "not working",
+    "broken", "damaged", "for repair", "as-is", "as is",
+    "screen only", "cracked", "water damage",
 ]
+
+# Minimum price for a real computer (anything cheaper is an accessory/part)
+MINIMUM_PRICE_USD = 200
 
 
 def is_likely_macbook_pro(title: str) -> bool:
@@ -431,10 +440,16 @@ class BaseScraper(ABC):
             True if we should keep this listing, False to skip it.
         """
         s = self.config.search
+        title_lower = listing.title.lower()
+        product_lower = s.product_name.lower()
         
-        # Skip non-computer listings (cases, chargers, keyboards, etc.)
-        if not is_likely_macbook_pro(listing.title):
-            return False
+        # Product-specific validation
+        if "macbook" in product_lower:
+            if not is_likely_macbook_pro(listing.title):
+                return False
+        elif "iphone" in product_lower:
+            if "iphone" not in title_lower:
+                return False
         
         # Check chip (only if a chip filter is configured)
         if s.chip and listing.chip:
@@ -464,12 +479,23 @@ class BaseScraper(ABC):
             if not ram_ok:
                 return False
         
+        # Check storage minimum
+        if s.storage_gb_min and listing.storage_gb:
+            if listing.storage_gb < s.storage_gb_min:
+                return False
+        if s.storage_gb_max and listing.storage_gb:
+            if listing.storage_gb > s.storage_gb_max:
+                return False
+        
         # Check location (only if configured)
         if s.location and listing.location:
             if s.location.lower() not in listing.location.lower():
                 return False
         
-        # Check price ceiling
+        # Check price range
+        min_price = 100 if "iphone" in product_lower else MINIMUM_PRICE_USD
+        if listing.price_usd < min_price:
+            return False
         if listing.price_usd > self.config.price.absolute_max_usd:
             return False
         

@@ -36,9 +36,12 @@ class BestBuyScraper(BaseScraper):
             print(f"  [Best Buy] Playwright fetch failed: {e}")
             return None
 
-    def _build_search_url(self, screen_size: int) -> str:
+    def _build_search_url(self, screen_size: Optional[int]) -> str:
         product = self.config.search.product_name
-        query = f"open box {product} {screen_size}-inch"
+        if screen_size:
+            query = f"open box {product} {screen_size}-inch"
+        else:
+            query = f"open box {product}"
         encoded_query = query.replace(" ", "+")
         return (
             f"https://www.bestbuy.com/site/searchpage.jsp"
@@ -128,7 +131,10 @@ class BestBuyScraper(BaseScraper):
     def scrape(self) -> list[ScrapedListing]:
         found: list[ScrapedListing] = []
         found_ids: set = set()
-        for screen_size in self.config.search.screen_sizes:
+        screen_sizes = self.config.search.screen_sizes
+        sizes_to_search = screen_sizes if screen_sizes else [None]
+        
+        for screen_size in sizes_to_search:
             search_url = self._build_search_url(screen_size)
             html = self._fetch_search_page(search_url)
             if not html:

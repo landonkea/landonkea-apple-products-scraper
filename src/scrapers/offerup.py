@@ -40,19 +40,22 @@ class OfferUpScraper(BaseScraper):
         super().__init__(config)
         self.source_name = "offerup"
     
-    def _build_search_url(self, screen_size: int) -> str:
+    def _build_search_url(self, screen_size: Optional[int]) -> str:
         """
         Build an OfferUp search URL.
         
         Args:
-            screen_size: Screen size in inches (14 or 16).
+            screen_size: Screen size in inches (14 or 16), or None for products without screen sizes.
         
         Returns:
             An OfferUp search URL.
         """
         product = self.config.search.product_name
         
-        query = f"{product} {screen_size}-inch"
+        if screen_size:
+            query = f"{product} {screen_size}-inch"
+        else:
+            query = product
         encoded = query.replace(" ", "+")
         
         return f"https://offerup.com/search/?q={encoded}"
@@ -249,7 +252,10 @@ class OfferUpScraper(BaseScraper):
         found: list[ScrapedListing] = []
         found_ids: set = set()
         
-        for screen_size in self.config.search.screen_sizes:
+        screen_sizes = self.config.search.screen_sizes
+        sizes_to_search = screen_sizes if screen_sizes else [None]
+        
+        for screen_size in sizes_to_search:
             search_url = self._build_search_url(screen_size)
             
             try:

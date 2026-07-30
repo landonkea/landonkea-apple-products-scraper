@@ -41,11 +41,16 @@ class AppleRefurbScraper(BaseScraper):
         """
         found: list[ScrapedListing] = []
         
-        # These are the real refurbished MacBook Pro category pages
-        urls = [
-            "https://www.apple.com/shop/refurbished/mac/14-inch-macbook-pro",
-            "https://www.apple.com/shop/refurbished/mac/16-inch-macbook-pro",
-        ]
+        screen_sizes = self.config.search.screen_sizes
+        if screen_sizes:
+            urls = [
+                "https://www.apple.com/shop/refurbished/mac/14-inch-macbook-pro",
+                "https://www.apple.com/shop/refurbished/mac/16-inch-macbook-pro",
+            ]
+        else:
+            product = self.config.search.product_name
+            slug = product.lower().replace(" ", "-")
+            urls = [f"https://www.apple.com/shop/refurbished/{slug}"]
         
         # Use a set of listing IDs we've already seen so we don't
         # add the same product twice (both pages return ALL products)
@@ -97,12 +102,12 @@ class AppleRefurbScraper(BaseScraper):
                         # Step 6: filter for MacBook Pro listings only
                         # Apple uses "refurbClearModel": "macbookpro"
                         # to identify MacBook Pro items in the grid
-                        filters = tile.get("filters", {})
-                        dimensions = filters.get("dimensions", {})
-                        model = dimensions.get("refurbClearModel", "")
-                        
-                        if model != "macbookpro":
-                            continue
+                        if screen_sizes:
+                            filters = tile.get("filters", {})
+                            dimensions = filters.get("dimensions", {})
+                            model = dimensions.get("refurbClearModel", "")
+                            if model != "macbookpro":
+                                continue
                         
                         listing = self._parse_tile(tile)
                         if not listing:
@@ -142,7 +147,9 @@ class AppleRefurbScraper(BaseScraper):
         # "Refurbished 14-inch MacBook Pro Apple M5 Max chip with
         #  18‑Core CPU and 40‑Core GPU - Space Black"
         title = tile.get("title", "")
-        if not title or "MacBook Pro" not in title:
+        if not title:
+            return None
+        if self.config.search.screen_sizes and "MacBook Pro" not in title:
             return None
         
         # ── Price ───────────────────────────────────────────────

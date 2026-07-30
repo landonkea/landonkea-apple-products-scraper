@@ -46,6 +46,9 @@ dependencies = [
     # pages.  No paid service needed — runs on GitHub Actions free.
     # To install browsers: playwright install chromium
     "playwright>=1.40",
+
+    # ── Anti-detection for Playwright (bypasses Cloudflare) ────
+    "playwright-stealth>=1.0",
 ]
 
 # ── Command-line entry point ───────────────────────────────────────

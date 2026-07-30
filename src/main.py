@@ -178,7 +178,7 @@ def run_scrape(config: Config) -> int:
         0 on success, 1 on error.
     """
     print(f"\n{'='*60}")
-    print(f"  MacBook Pro Deal Scraper — Starting Run")
+    print(f"  Mac/iOS Deal Scraper — Starting Run")
     print(f"  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
     print(f"{'='*60}\n")
     
@@ -189,84 +189,92 @@ def run_scrape(config: Config) -> int:
     db = get_session(config.database.url)
     print(f"  [DB] Connected to {config.database.url}")
     
-    # Analyzer
-    analyzer = PriceAnalyzer(config)
-    
-    # Notifier
-    notifier = Notifier(config)
-    
-    # Scrapers
-    scrapers = get_enabled_scrapers(config)
     print()
     
-    # ── 2. Run all scrapers ────────────────────────────────────
-    print("🔍 Scraping marketplaces...")
+    # ── 2. Run search for each product ─────────────────────────
+    for search_idx, search_config in enumerate(config.searches):
+        product_name = search_config.product_name
+        print(f"\n{'─'*60}")
+        print(f"  Searching for: {product_name}")
+        print(f"{'─'*60}\n")
+        
+        # Create a temporary config with this search
+        config.search = search_config
+        
+        # Analyzer (one per product)
+        analyzer = PriceAnalyzer(config)
+        
+        # Notifier (one per product)
+        notifier = Notifier(config)
+        
+        # Scrapers
+        scrapers = get_enabled_scrapers(config)
+        
+        # ── 2a. Run all scrapers ───────────────────────────────
+        print("🔍 Scraping marketplaces...")
+        
+        all_scraped: list[ScrapedListing] = []
+        
+        for scraper in scrapers:
+            print(f"\n  ── {scraper.source_name.upper()} ──")
+            try:
+                found = scraper.scrape()
+                all_scraped.extend(found)
+            except Exception as e:
+                print(f"  ❌ {scraper.source_name} failed: {e}")
+                continue
+        
+        print(f"\n  Total raw listings found: {len(all_scraped)}")
+        
+        # ── 2b. Save to database ───────────────────────────────
+        print("\n💾 Saving to database...")
+        
+        db_listings: list[Listing] = []
+        for scraped in all_scraped:
+            try:
+                db_obj = listing_to_db(db, scraped, config)
+                db_listings.append(db_obj)
+            except Exception as e:
+                print(f"  [DB] Error saving {scraped.title[:50]}: {e}")
+                continue
+        
+        print(f"  Saved/updated {len(db_listings)} listings")
+        
+        # ── 2c. Analyze prices ─────────────────────────────────
+        print("\n📊 Analyzing prices...")
+        analyzed = analyzer.analyze(db_listings)
+        stats = analyzer.get_stats()
+        
+        print(f"  Listings analyzed: {stats['count']}")
+        print(f"  Price range: ${stats['min']:,.0f} – ${stats['max']:,.0f}")
+        print(f"  Median: ${stats['median']:,.0f} | Mean: ${stats['mean']:,.0f}")
+        
+        # Show top deals
+        top_deals = analyzer.get_top_deals()
+        if top_deals:
+            print(f"\n  🔥 Top {len(top_deals)} Deals:")
+            for i, l in enumerate(top_deals[:5], 1):
+                emoji = "🔥" if l.is_great_deal else "💰"
+                print(f"    {emoji} #{i}: ${l.price_usd:,.0f} "
+                      f"| {l.source} "
+                      f"| Score: {l.deal_score}")
+        
+        # ── 2d. Find truly new listings ────────────────────────
+        print("\n🆕 Checking for new listings...")
+        new_listings = find_new_listings(db, all_scraped)
+        print(f"  Truly new: {len(new_listings)}")
+        
+        # ── 2e. Send alerts ────────────────────────────────────
+        print("\n📬 Sending alerts...")
+        
+        has_great_deals = any(l.is_great_deal for l in top_deals)
+        
+        if new_listings or has_great_deals:
+            notifier.send_alert(top_deals, stats)
+        else:
+            print("  No new listings or great deals — skipping alert.")
     
-    all_scraped: list[ScrapedListing] = []
-    
-    for scraper in scrapers:
-        print(f"\n  ── {scraper.source_name.upper()} ──")
-        try:
-            found = scraper.scrape()
-            all_scraped.extend(found)
-        except Exception as e:
-            print(f"  ❌ {scraper.source_name} failed: {e}")
-            continue
-    
-    print(f"\n  Total raw listings found: {len(all_scraped)}")
-    
-    # ── 3. Save to database ────────────────────────────────────
-    print("\n💾 Saving to database...")
-    
-    db_listings: list[Listing] = []
-    for scraped in all_scraped:
-        try:
-            db_obj = listing_to_db(db, scraped, config)
-            db_listings.append(db_obj)
-        except Exception as e:
-            print(f"  [DB] Error saving {scraped.title[:50]}: {e}")
-            continue
-    
-    print(f"  Saved/updated {len(db_listings)} listings")
-    
-    # ── 4. Analyze prices ──────────────────────────────────────
-    print("\n📊 Analyzing prices...")
-    analyzed = analyzer.analyze(db_listings)
-    stats = analyzer.get_stats()
-    
-    print(f"  Listings analyzed: {stats['count']}")
-    print(f"  Price range: ${stats['min']:,.0f} – ${stats['max']:,.0f}")
-    print(f"  Median: ${stats['median']:,.0f} | Mean: ${stats['mean']:,.0f}")
-    
-    # Show top deals
-    top_deals = analyzer.get_top_deals()
-    if top_deals:
-        print(f"\n  🔥 Top {len(top_deals)} Deals:")
-        for i, l in enumerate(top_deals[:5], 1):
-            emoji = "🔥" if l.is_great_deal else "💰"
-            print(f"    {emoji} #{i}: ${l.price_usd:,.0f} "
-                  f"| {l.ram_gb}GB | {l.source} "
-                  f"| Score: {l.deal_score}")
-    
-    # ── 5. Find truly new listings (never seen before) ─────────
-    print("\n🆕 Checking for new listings...")
-    new_listings = find_new_listings(db, all_scraped)
-    print(f"  Truly new: {len(new_listings)}")
-    
-    # ── 6. Send alerts ─────────────────────────────────────────
-    print("\n📬 Sending alerts...")
-    
-    # Only alert if:
-    #   a) There are new listings, OR
-    #   b) There are great deals (even if we've seen them before)
-    has_great_deals = any(l.is_great_deal for l in top_deals)
-    
-    if new_listings or has_great_deals:
-        notifier.send_alert(top_deals, stats)
-    else:
-        print("  No new listings or great deals — skipping alert.")
-    
-    # ── 7. Summary ─────────────────────────────────────────────
+    # ── 3. Summary ─────────────────────────────────────────────
     print(f"\n{'='*60}")
     print(f"  ✅ Run complete — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
     print(f"  Total active listings in DB: {db.query(Listing).filter(Listing.is_active == True).count()}")

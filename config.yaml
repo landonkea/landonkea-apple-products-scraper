@@ -9,31 +9,33 @@
 # ───────────────────────────────────────────────────────────────────
 
 # ── WHAT TO SEARCH FOR ─────────────────────────────────────────────
-# These are the specs that ALL listings must match (or be close to).
-# The scraper will check every listing against these filters.
-search:
-  product_name: "MacBook Pro"           # Base product name
+# List of products to search for.  The scraper runs once per product
+# and alerts you about the best deals on each one.
+# Add a new entry to search for a different product.
+searches:
+  # ── MacBook Pro (14" and 16", any chip/RAM) ──────────────────
+  - product_name: "MacBook Pro"
+    chip: ~
+    chip_fallback: ~
+    screen_sizes: [14, 16]
+    ram_gb_primary: ~
+    ram_gb_fallback: ~
+    storage_gb_min: ~
+    storage_gb_max: ~
+    location: ~
+    results_per_size: 30
 
-  # Chip to search for — set to null for any chip
-  chip: ~
-  chip_fallback: ~
-
-  # Screen sizes to search for: 14-inch and 16-inch
-  screen_sizes: [14, 16]
-
-  # RAM filter — set to null for any RAM
-  ram_gb_primary: ~
-  ram_gb_fallback: ~
-
-  # Storage: any size is fine
-  storage_gb_min: ~
-  storage_gb_max: ~
-
-  # Location filter — only show listings in/near this area
-  location: ~
-
-  # How many cheapest listings to return per screen size
-  results_per_size: 30
+  # ── iPhone 17 Pro Max (1TB) ──────────────────────────────────
+  - product_name: "iPhone 17 Pro Max"
+    chip: ~
+    chip_fallback: ~
+    screen_sizes: []
+    ram_gb_primary: ~
+    ram_gb_fallback: ~
+    storage_gb_min: 1000  # 1TB minimum
+    storage_gb_max: ~
+    location: ~
+    results_per_size: 30
 
 # ── PRICE THRESHOLDS ───────────────────────────────────────────────
 # These determine what counts as a "deal worth alerting about".

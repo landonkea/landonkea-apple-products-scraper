@@ -116,10 +116,11 @@ class Config:
     
     Usage:
         config = load_config()
-        print(config.search.chip)           # "M5 Max"
-        print(config.price.absolute_max_usd)  # 8000
+        for search in config.searches:
+            print(search.chip)
+        print(config.price.absolute_max_usd)
     """
-    search: SearchConfig
+    searches: list[SearchConfig]
     price: PriceConfig
     sites: SitesConfig
     alerts: AlertsConfig
@@ -152,28 +153,33 @@ def load_config(path: str = "config.yaml") -> Config:
         raw = yaml.safe_load(f)
 
     # Grab each section
-    search_raw = raw["search"]
+    searches_raw = raw["searches"]
     price_raw  = raw["price"]
     sites_raw  = raw["sites"]
     alerts_raw = raw["alerts"]
     db_raw     = raw["database"]
 
+    # Parse each search
+    searches = []
+    for s in searches_raw:
+        searches.append(SearchConfig(
+            product_name=s["product_name"],
+            chip=s.get("chip"),
+            chip_fallback=s.get("chip_fallback"),
+            screen_sizes=s.get("screen_sizes", []),
+            ram_gb_primary=s.get("ram_gb_primary"),
+            ram_gb_fallback=s.get("ram_gb_fallback"),
+            storage_gb_min=s.get("storage_gb_min"),
+            storage_gb_max=s.get("storage_gb_max"),
+            cpu_cores_min=s.get("cpu_cores_min"),
+            gpu_cores_min=s.get("gpu_cores_min"),
+            results_per_size=s.get("results_per_size", 30),
+            location=s.get("location"),
+        ))
+
     # Build typed config
     config = Config(
-        search=SearchConfig(
-            product_name=search_raw["product_name"],
-            chip=search_raw.get("chip"),
-            chip_fallback=search_raw.get("chip_fallback"),
-            screen_sizes=search_raw.get("screen_sizes", [14, 16]),
-            ram_gb_primary=search_raw.get("ram_gb_primary"),
-            ram_gb_fallback=search_raw.get("ram_gb_fallback"),
-            storage_gb_min=search_raw.get("storage_gb_min"),
-            storage_gb_max=search_raw.get("storage_gb_max"),
-            cpu_cores_min=search_raw.get("cpu_cores_min"),
-            gpu_cores_min=search_raw.get("gpu_cores_min"),
-            results_per_size=search_raw.get("results_per_size", 30),
-            location=search_raw.get("location"),
-        ),
+        searches=searches,
         price=PriceConfig(
             absolute_max_usd=price_raw["absolute_max_usd"],
             great_deal_usd=price_raw["great_deal_usd"],
