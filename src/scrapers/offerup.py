@@ -77,21 +77,15 @@ class OfferUpScraper(BaseScraper):
         
         try:
             with sync_playwright() as playwright:
-                # ── Launch Chromium with stealth flags ────────────
-                browser = playwright.chromium.launch(
+                browser = playwright.firefox.launch(
                     headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                    ],
                 )
                 
                 # ── Create realistic browser context ─────────────
                 context = browser.new_context(
                     user_agent=(
-                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/125.0.0.0 Safari/537.36"
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) "
+                        "Gecko/20100101 Firefox/151.0"
                     ),
                     viewport={"width": 1920, "height": 1080},
                     locale="en-US",
@@ -125,12 +119,11 @@ class OfferUpScraper(BaseScraper):
                     print(f"  [OfferUp] Trying fallback URL: {specific_url[:80]}")
                     
                     with sync_playwright() as pw2:
-                        b2 = pw2.chromium.launch(
+                        b2 = pw2.firefox.launch(
                             headless=True,
-                            args=["--no-sandbox", "--disable-setuid-sandbox"],
                         )
                         c2 = b2.new_context(
-                            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) Gecko/20100101 Firefox/151.0",
                             viewport={"width": 1920, "height": 1080},
                             locale="en-US",
                         )
