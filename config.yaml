@@ -138,6 +138,16 @@ sites:
     # none work, it logs instructions for Playwright setup.
     search_url: "https://offerup.com/search/?q={{query}}"
 
+  newegg:
+    enabled: true
+    # Newegg's third-party marketplace carries Refurbished/Used Apple
+    # gear. No login required. The scraper uses a bare product-name
+    # query (`d={{query}}`) with Newegg's default relevance sort —
+    # see src/scrapers/newegg.py's module docstring for why appending
+    # chip/screen-size terms or a price-ascending sort (both used by
+    # other scrapers here) actively hurts result quality on Newegg.
+    search_url: "https://www.newegg.com/p/pl?d={{query}}"
+
   # Facebook Marketplace requires a login — we handle this via
   # environment variables for the session cookie.
   facebook:

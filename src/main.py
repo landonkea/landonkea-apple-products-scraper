@@ -29,6 +29,7 @@ from scrapers.backmarket import BackMarketScraper
 from scrapers.mercari import MercariScraper
 from scrapers.bestbuy import BestBuyScraper
 from scrapers.offerup import OfferUpScraper
+from scrapers.newegg import NeweggScraper
 
 from price_analyzer import PriceAnalyzer
 from notifier import Notifier
@@ -47,6 +48,7 @@ SCRAPER_CLASSES = {
     "mercari": MercariScraper,
     "bestbuy": BestBuyScraper,
     "offerup": OfferUpScraper,
+    "newegg": NeweggScraper,
 }
 
 
