@@ -62,26 +62,26 @@ class OfferUpScraper(BaseScraper):
         
         return f"https://offerup.com/search/?q={encoded}"
     
-    def _fetch_listings_json(self, url: str) -> list[dict]:
+    def _build_fallback_urls(self, url: str) -> list[str]:
         """
-        Load the OfferUp search page and extract listing data.
-        
-        Tries four strategies in order:
-          1. __NEXT_DATA__ (Next.js embedded JSON — fastest)
-          2. JSON-LD (structured data <script> tags)
-          3. Rendered card elements (wait for JS, scrape the DOM)
-          4. /item/detail/ links in pre-rendered HTML
-          
+        Build the ordered list of search URLs to attempt.
+
+        WHAT: Returns the primary search URL followed by a more
+        specific fallback query (product + chip + RAM).
+
+        WHY: OfferUp's generic search sometimes returns a page whose
+        embedded data is stripped or empty (anti-bot behavior). A more
+        specific query string occasionally dodges that and returns a
+        populated page, so we keep it in reserve as a second attempt.
+
         Args:
-            url: The OfferUp search URL.
-        
+            url: The primary OfferUp search URL.
+
         Returns:
-            A list of listing dicts from the search results.
+            A list of URLs to try in order.
         """
-        from playwright.sync_api import sync_playwright
-        
         urls_to_try = [url]
-        
+
         product = self.config.search.product_name
         chip = self.config.search.chip
         ram = self.config.search.ram_gb_primary
@@ -92,16 +92,50 @@ class OfferUpScraper(BaseScraper):
             specific_query += f" {ram}GB"
         fallback_url = f"https://offerup.com/search/?q={specific_query.replace(' ', '+')}"
         urls_to_try.append(fallback_url)
-        
+
+        return urls_to_try
+
+    def _fetch_listings_json(self, url: str) -> list[dict]:
+        """
+        Load the OfferUp search page and extract listing data.
+
+        WHAT: Drives a headless browser through one or more search
+        URLs and, for each page load, tries a chain of extraction
+        strategies until one yields listings.
+
+        WHY A FALLBACK CHAIN: OfferUp is a JS-heavy React app whose
+        page structure is inconsistent — anti-bot measures, A/B tests,
+        and partial renders mean no single extraction approach works
+        reliably every time. Trying cheaper/more-structured strategies
+        first (embedded JSON) before falling back to messier ones
+        (regex over raw HTML) maximizes the chance of getting data
+        while keeping the common case fast.
+
+        Strategies tried in order, per page load:
+          1. _try_next_data   — Next.js __NEXT_DATA__ embedded JSON
+          2. _try_json_ld     — JSON-LD structured data <script> tags
+          3. _try_rendered_dom — rendered card elements after extra JS wait
+          4. _try_html_links  — regex/CSS scan for /item/detail/ links
+
+        Args:
+            url: The OfferUp search URL.
+
+        Returns:
+            A list of listing dicts from the search results.
+        """
+        from playwright.sync_api import sync_playwright
+
+        urls_to_try = self._build_fallback_urls(url)
+
         last_error = None
-        
+
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(
                     headless=True,
                     args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
                 )
-                
+
                 context = browser.new_context(
                     user_agent=(
                         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -111,69 +145,91 @@ class OfferUpScraper(BaseScraper):
                     viewport={"width": 1920, "height": 1080},
                     locale="en-US",
                 )
-                
+
                 page = context.new_page()
-                
+
                 for i, try_url in enumerate(urls_to_try):
                     if i > 0:
                         print(f"  [OfferUp] Trying fallback URL: {try_url[:80]}")
-                    
+
                     page.goto(try_url, wait_until="load", timeout=30000)
                     page.wait_for_timeout(5000)
-                    
-                    # ── Strategy 1: __NEXT_DATA__ ──────────────────
-                    next_data_json = page.evaluate("""
-                        () => {
-                            const el = document.getElementById('__NEXT_DATA__');
-                            return el ? el.textContent : null;
-                        }
-                    """)
-                    
-                    if next_data_json:
-                        listings = self._parse_next_data(next_data_json)
-                        if listings:
-                            browser.close()
-                            return listings
-                    
-                    # ── Wait more for JS rendering ────────────────
+
+                    listings = self._try_next_data(page)
+                    if listings:
+                        browser.close()
+                        return listings
+
+                    # ── Wait more for JS rendering before DOM-based strategies ──
                     page.wait_for_timeout(8000)
                     html = page.content()
                     soup = BeautifulSoup(html, "lxml")
-                    
-                    # ── Strategy 2: JSON-LD structured data ──────
-                    jsonld = self._extract_jsonld_listings(soup)
-                    if jsonld:
+
+                    listings = self._try_json_ld(soup)
+                    if listings:
                         browser.close()
-                        return jsonld
-                    
-                    # ── Strategy 3: Rendered card elements ────────
-                    cards = self._extract_card_listings(soup)
-                    if cards:
+                        return listings
+
+                    listings = self._try_rendered_dom(soup)
+                    if listings:
                         browser.close()
-                        return cards
-                    
-                    # ── Strategy 4: /item/detail/ link parsing ──
-                    links = self._extract_link_listings(soup)
-                    if links:
+                        return listings
+
+                    listings = self._try_html_links(soup)
+                    if listings:
                         browser.close()
-                        return links
-                
+                        return listings
+
                 browser.close()
-        
+
         except Exception as e:
             last_error = e
-        
+
         if last_error:
             raise Exception(
                 f"Playwright error: {last_error}. "
                 f"Install: pip install playwright && playwright install chromium"
             ) from last_error
-        
+
         print("  [OfferUp] No listings found on page")
         return []
-    
+
     # ── Extraction strategy helpers ───────────────────────────────
-    
+
+    def _try_next_data(self, page) -> list[dict]:
+        """
+        Strategy 1: extract listings from Next.js __NEXT_DATA__ JSON.
+
+        WHAT: Pulls the text content of the __NEXT_DATA__ <script>
+        element via a small JS snippet run in the page context, then
+        parses it as JSON.
+
+        WHY THIS APPROACH: __NEXT_DATA__ is the raw server-rendered
+        state React hydrates from. It's populated before OfferUp's
+        anti-bot logic can strip content, and it's structured JSON
+        rather than HTML we'd have to scrape — so it's the fastest
+        and most reliable source when present.
+
+        Args:
+            page: The Playwright page object, already navigated to the
+                  target URL.
+
+        Returns:
+            A list of listing dicts, or an empty list if __NEXT_DATA__
+            was missing, unparseable, or contained no listings.
+        """
+        next_data_json = page.evaluate("""
+            () => {
+                const el = document.getElementById('__NEXT_DATA__');
+                return el ? el.textContent : null;
+            }
+        """)
+
+        if not next_data_json:
+            return []
+
+        return self._parse_next_data(next_data_json)
+
     def _parse_next_data(self, next_data_json: str) -> list[dict]:
         """Parse listings from __NEXT_DATA__ JSON."""
         data = json.loads(next_data_json)
@@ -187,9 +243,27 @@ class OfferUpScraper(BaseScraper):
                 if listing_data and listing_data.get("title"):
                     listings.append(listing_data)
         return listings
-    
-    def _extract_jsonld_listings(self, soup: BeautifulSoup) -> list[dict]:
-        """Extract listings from JSON-LD structured data."""
+
+    def _try_json_ld(self, soup: BeautifulSoup) -> list[dict]:
+        """
+        Strategy 2: extract listings from JSON-LD structured data.
+
+        WHAT: Reads `<script type="application/ld+json">` tags and
+        pulls out product-like entries whose name mentions "macbook".
+
+        WHY THIS APPROACH: Many e-commerce pages (including OfferUp's
+        rendered search results) embed JSON-LD for SEO purposes. When
+        present, it's structured and doesn't depend on CSS class names
+        that can change, making it a solid second choice after
+        __NEXT_DATA__.
+
+        Args:
+            soup: Parsed BeautifulSoup of the rendered page HTML.
+
+        Returns:
+            A list of listing dicts, or an empty list if no matching
+            JSON-LD entries were found.
+        """
         scripts = soup.select("script[type='application/ld+json']")
         listings = []
         for script in scripts:
@@ -222,8 +296,28 @@ class OfferUpScraper(BaseScraper):
                 continue
         return listings
     
-    def _extract_card_listings(self, soup: BeautifulSoup) -> list[dict]:
-        """Extract listings from rendered card elements."""
+    def _try_rendered_dom(self, soup: BeautifulSoup) -> list[dict]:
+        """
+        Strategy 3: extract listings from rendered DOM card elements.
+
+        WHAT: Scans the fully-JS-rendered page for search-result card
+        elements (tried via several CSS selectors, from most to least
+        specific) and pulls title/price/condition/location out of each.
+
+        WHY THIS APPROACH: When neither __NEXT_DATA__ nor JSON-LD is
+        available, the only remaining source of truth is the rendered
+        DOM itself. This is slower and more brittle (depends on class
+        names and structure that can change), so it's tried only after
+        the more structured strategies fail.
+
+        Args:
+            soup: Parsed BeautifulSoup of the rendered page HTML
+                  (captured after extra wait time for JS rendering).
+
+        Returns:
+            A list of listing dicts, or an empty list if no card
+            elements could be parsed into valid listings.
+        """
         cards = (
             soup.select("[data-testid='search-card']")
             or soup.select("article")
@@ -286,8 +380,29 @@ class OfferUpScraper(BaseScraper):
                 continue
         return listings
     
-    def _extract_link_listings(self, soup: BeautifulSoup) -> list[dict]:
-        """Extract listings from /item/detail/ links in pre-rendered HTML."""
+    def _try_html_links(self, soup: BeautifulSoup) -> list[dict]:
+        """
+        Strategy 4: extract listings from raw /item/detail/ links.
+
+        WHAT: Scans all anchor tags linking to `/item/detail/{id}` and
+        builds minimal listing dicts from the link and its surrounding
+        HTML (title from the link text/aria-label, price from a nearby
+        sibling element if present).
+
+        WHY THIS APPROACH: This is the last-resort strategy — it makes
+        the fewest assumptions about page structure (just "there's a
+        link to an item detail page somewhere") so it's the most
+        resilient to layout changes, but it also produces the least
+        complete data (e.g. no condition). It's only used when all
+        more structured strategies come up empty.
+
+        Args:
+            soup: Parsed BeautifulSoup of the rendered page HTML.
+
+        Returns:
+            A list of listing dicts, or an empty list if no
+            /item/detail/ links were found.
+        """
         links = soup.select("a[href*='/item/detail/']")
         seen_ids = set()
         listings = []
@@ -400,11 +515,13 @@ class OfferUpScraper(BaseScraper):
         location = item.get("locationName") or item.get("location", "")
         
         # ── Parse specs from title ──────────────────────────────
-        ram = self.extract_ram(title)
-        storage = self.extract_storage(title)
-        screen = self.extract_screen(title)
-        chip = self.extract_chip(title)
-        cpu_cores, gpu_cores = self.extract_cores(title)
+        specs = self.parse_common_specs(title)
+        ram = specs["ram_gb"]
+        storage = specs["storage_gb"]
+        screen = specs["screen_size"]
+        chip = specs["chip"]
+        cpu_cores = specs["cpu_cores"]
+        gpu_cores = specs["gpu_cores"]
 
         return ScrapedListing(
             source=self.source_name,

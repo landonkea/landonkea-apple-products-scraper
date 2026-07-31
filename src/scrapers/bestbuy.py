@@ -260,11 +260,13 @@ class BestBuyScraper(BaseScraper):
         listing_id = self._parse_listing_id(item, url)
 
         # Extract specs from the title string.
-        ram = self.extract_ram(title)
-        storage = self.extract_storage(title)
-        screen = self.extract_screen(title)
-        chip = self.extract_chip(title)
-        cpu_cores, gpu_cores = self.extract_cores(title)
+        specs = self.parse_common_specs(title)
+        ram = specs["ram_gb"]
+        storage = specs["storage_gb"]
+        screen = specs["screen_size"]
+        chip = specs["chip"]
+        cpu_cores = specs["cpu_cores"]
+        gpu_cores = specs["gpu_cores"]
 
         # Special case: Best Buy sometimes puts RAM in the URL path
         # (e.g. "128GB" in URL = 128GB RAM for Mac Pro).

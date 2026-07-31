@@ -333,11 +333,13 @@ class BackMarketScraper(BaseScraper):
         listing_id = f"bm_{hash(url or title)}"
 
         # Extract specs from the title string.
-        ram = self.extract_ram(title)
-        storage = self.extract_storage(title)
-        screen = self.extract_screen(title)
-        chip = self.extract_chip(title)
-        cpu_cores, gpu_cores = self.extract_cores(title)
+        specs = self.parse_common_specs(title)
+        ram = specs["ram_gb"]
+        storage = specs["storage_gb"]
+        screen = specs["screen_size"]
+        chip = specs["chip"]
+        cpu_cores = specs["cpu_cores"]
+        gpu_cores = specs["gpu_cores"]
 
         return ScrapedListing(
             source=self.source_name,

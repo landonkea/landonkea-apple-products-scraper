@@ -14,9 +14,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 # ── Basic info ─────────────────────────────────────────────────────
-name = "landonkea-mac-deal-alert-scraper"
+name = "landonkea-apple-products-scraper"
 version = "1.0.0"
-description = "Scrapes eBay, Swappa, Apple Refurb, Back Market, Mercari and more every 6 hours, alerts you when a 14-inch MacBook Pro M5 Max (64GB/128GB) is listed at a great price."
+description = "Scrapes eBay, Swappa, Apple Refurb, Back Market, Mercari and more every 6 hours, alerting on great deals for MacBook Pro (last 3 chip generations) and iPhone Pro Max (last 3 generations)."
 readme = "README.md"
 requires-python = ">=3.11"
 
@@ -36,11 +36,6 @@ dependencies = [
     # ── Configuration ─────────────────────────────────────────────
     "pyyaml>=6.0",             # Reads config.yaml files
 
-    # ── Scheduling ────────────────────────────────────────────────
-    # (Not needed if running via GitHub Actions cron, but useful
-    #  for local testing.)
-    "schedule>=1.2",
-
     # ── Browser automation (for JS-heavy sites like OfferUp) ────
     # Playwright launches a headless Chromium to render JavaScript
     # pages.  No paid service needed — runs on GitHub Actions free.
@@ -52,10 +47,10 @@ dependencies = [
 ]
 
 # ── Command-line entry point ───────────────────────────────────────
-# This defines the `mac-deal-scraper` command.
-# When you run `mac-deal-scraper`, Python calls main() from src/main.py.
+# This defines the `apple-product-scraper` command.
+# When you run `apple-product-scraper`, Python calls main() from src/main.py.
 [project.scripts]
-mac-deal-scraper = "main:main"
+apple-product-scraper = "main:main"
 
 # ── Development dependencies ──────────────────────────────────────
 # These are only needed when DEVELOPING the project (not running it).

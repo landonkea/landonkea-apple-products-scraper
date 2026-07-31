@@ -90,32 +90,33 @@ class SwappaScraper(BaseScraper):
         slug = product.lower().replace(" ", "-")
         return f"{self.BASE_URL}/buy/{slug}/{slug}?sort=price_asc"
 
-    def _fetch_listings_json(self, search_url: str) -> list[dict]:
+    def _discover_variant_slugs(self, soup) -> list[str]:
         """
-        Fetch all active listings for a product by scraping variant pages.
+        Find every model-variant SKU slug on a Swappa product page.
 
-        HOW IT WORKS:
-        1. Fetch the product page (e.g. /buy/macbooks/macbook-pro).
-        2. Parse the page to find all model variant cards.
-        3. For each variant, extract its SKU slug.
-        4. Fetch each variant's listing page (/listings/{slug}).
-        5. Parse each listing card on that page.
+        WHAT: Scans the product page's variant cards (e.g. "MacBook
+        Pro 14\" M3 2023") and pulls out each one's SKU slug, which is
+        the identifier Swappa uses in its `/listings/{slug}` URLs.
+
+        HOW: Each variant is rendered as a `div.card.card_product`.
+        The slug normally lives in a `meta[itemprop="sku"]` tag inside
+        the card; if that's missing, we fall back to parsing it out of
+        the card's own link href. Cards are also filtered down to the
+        screen sizes the user configured, if any, by checking whether
+        the size appears in the card's title text.
+
+        WHY A SEPARATE STEP: Swappa has no single search endpoint that
+        returns all listings for a product — you must first discover
+        which variant pages exist before you can fetch any listings.
+        Isolating that discovery here keeps it independently testable
+        and readable, separate from the per-variant fetch/parse step.
 
         Args:
-            search_url: The Swappa product page URL to start from.
+            soup: Parsed BeautifulSoup of the product page HTML.
 
         Returns:
-            List of raw listing dicts with keys:
-            title, price, url, condition, listing_id, location,
-            ram_gb, storage_gb, chip
+            A list of SKU slug strings, one per matching variant.
         """
-        # Fetch the product page HTML.
-        html = self.fetch_page(search_url)
-        # Parse HTML into BeautifulSoup for CSS selector queries.
-        soup = self.parse_html(html)
-
-        # Step 1: Find all product variant cards on the page.
-        # Each card represents a specific model (e.g. "MacBook Pro 14" M3 2023").
         slugs: list[str] = []
         for card in soup.select("div.card.card_product"):
             # Each variant card has a title element with the model name.
@@ -141,24 +142,84 @@ class SwappaScraper(BaseScraper):
             if slug:
                 slugs.append(slug)
 
+        return slugs
+
+    def _fetch_listings_for_slug(self, slug: str) -> list[dict]:
+        """
+        Fetch and parse all listing cards for a single variant slug.
+
+        WHAT: Fetches the `/listings/{slug}` page for one model variant
+        and parses every listing card on it into a raw listing dict.
+
+        WHY PER-SLUG: Swappa exposes listings per variant, not via a
+        combined search, so each slug discovered on the product page
+        needs its own fetch. Isolating this per-slug logic keeps the
+        network call and its error handling independent of the
+        discovery step and easy to reason about (or retry) on its own.
+
+        Args:
+            slug: A Swappa SKU slug, e.g. "macbook-pro-14-m3-2023-16gb".
+
+        Returns:
+            A list of raw listing dicts parsed from that variant's
+            listings page. Returns an empty list if the page fetch
+            fails (the error is logged but not raised, so other
+            variants can still be processed).
+        """
+        listings_url = f"{self.BASE_URL}/listings/{slug}"
+        try:
+            # Fetch the variant listing page.
+            listings_html = self.fetch_page(listings_url)
+            listings_soup = self.parse_html(listings_html)
+            # Find and parse all listing cards on this variant page.
+            listings = []
+            for card in listings_soup.select("div.card.xui_card.xui_card_listing"):
+                listing = self._parse_listing(card)
+                if listing:
+                    listings.append(listing)
+            return listings
+        except Exception as e:
+            # Log the error but let the caller continue with other variants.
+            print(f"  [Swappa] Error fetching listings for {slug}: {e}")
+            return []
+
+    def _fetch_listings_json(self, search_url: str) -> list[dict]:
+        """
+        Fetch all active listings for a product by scraping variant pages.
+
+        HOW IT WORKS:
+        1. Fetch the product page (e.g. /buy/macbooks/macbook-pro).
+        2. Discover all model-variant SKU slugs via _discover_variant_slugs().
+        3. Fetch and parse each variant's listing page via
+           _fetch_listings_for_slug().
+        4. Concatenate the results from every variant.
+
+        WHY SPLIT THIS WAY: Discovering slugs and fetching a variant's
+        listings are conceptually separate operations (one parses the
+        product page, the other hits a different URL per variant), so
+        each lives in its own single-purpose, independently readable
+        method.
+
+        Args:
+            search_url: The Swappa product page URL to start from.
+
+        Returns:
+            List of raw listing dicts with keys:
+            title, price, url, condition, listing_id, location,
+            ram_gb, storage_gb, chip
+        """
+        # Fetch the product page HTML.
+        html = self.fetch_page(search_url)
+        # Parse HTML into BeautifulSoup for CSS selector queries.
+        soup = self.parse_html(html)
+
+        # Step 1: Find all model-variant SKU slugs on the product page.
+        slugs = self._discover_variant_slugs(soup)
+
         # Step 2: Fetch each variant's listing page and parse individual listings.
         all_listings: list[dict] = []
         for slug in slugs:
-            # Build the URL for this variant's active listings page.
-            listings_url = f"{self.BASE_URL}/listings/{slug}"
-            try:
-                # Fetch the variant listing page.
-                listings_html = self.fetch_page(listings_url)
-                listings_soup = self.parse_html(listings_html)
-                # Find all listing cards on this variant page.
-                for card in listings_soup.select("div.card.xui_card.xui_card_listing"):
-                    listing = self._parse_listing(card)
-                    if listing:
-                        all_listings.append(listing)
-            except Exception as e:
-                # Log the error but continue with other variants.
-                print(f"  [Swappa] Error fetching listings for {slug}: {e}")
-                continue
+            all_listings.extend(self._fetch_listings_for_slug(slug))
 
         return all_listings
 
@@ -293,11 +354,13 @@ class SwappaScraper(BaseScraper):
         location = item.get("location")
 
         # Use explicitly parsed specs if available, otherwise extract from title.
-        ram = item.get("ram_gb") or self.extract_ram(title)
-        storage = item.get("storage_gb") or self.extract_storage(title)
-        screen = self.extract_screen(title)
-        chip = item.get("chip") or self.extract_chip(title)
-        cpu_cores, gpu_cores = self.extract_cores(title)
+        specs = self.parse_common_specs(title)
+        ram = item.get("ram_gb") or specs["ram_gb"]
+        storage = item.get("storage_gb") or specs["storage_gb"]
+        screen = specs["screen_size"]
+        chip = item.get("chip") or specs["chip"]
+        cpu_cores = specs["cpu_cores"]
+        gpu_cores = specs["gpu_cores"]
 
         return ScrapedListing(
             source=self.source_name,
