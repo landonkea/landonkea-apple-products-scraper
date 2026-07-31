@@ -148,6 +148,19 @@ sites:
     # other scrapers here) actively hurts result quality on Newegg.
     search_url: "https://www.newegg.com/p/pl?d={{query}}"
 
+  gazelle:
+    enabled: true
+    # Gazelle's actual storefront lives on buy.gazelle.com (a Shopify
+    # store) — www.gazelle.com 404s on collection/product/search
+    # routes. The scraper hits buy.gazelle.com's public Shopify JSON
+    # endpoints directly: /collections/{handle}/products.json for
+    # known per-generation collections (e.g. iphone-17-pro-max), and
+    # /search/suggest.json as a site-wide fallback. Gazelle does not
+    # currently stock MacBooks (confirmed live — see gazelle.py's
+    # module docstring), so the MacBook Pro search legitimately finds
+    # 0 listings here today.
+    search_url: "https://buy.gazelle.com/search/suggest.json?q={{query}}&resources[type]=product"
+
   # Facebook Marketplace requires a login — we handle this via
   # environment variables for the session cookie.
   facebook:
