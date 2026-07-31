@@ -221,6 +221,28 @@ IPHONE_BAD_KEYWORDS = [
     "network locked", "bad imei",
 ]
 
+# iPhone accessory titles very often literally contain the phone's
+# generation name (e.g. "Case for iPhone 15 Pro Max") since that's
+# the product they're compatible with — so, unlike MacBook listings,
+# a plain "does the title mention iPhone 15 Pro Max" search can't
+# tell an accessory apart from an actual phone. This list plus the
+# MINIMUM_PRICE_USD/storage check in is_likely_iphone() is what
+# actually filters them out.
+IPHONE_ACCESSORY_KEYWORDS = [
+    "case", "cover", "skin", "decal", "sticker", "sleeve", "pouch",
+    "screen protector", "tempered glass", "privacy glass", "camera lens",
+    "charger", "charging cable", "cable", "adapter", "magsafe charger",
+    "power bank", "battery pack", "car mount", "mount", "holder", "stand",
+    "wallet", "lanyard", "strap", "pop socket", "popsocket", "stylus",
+    "earbuds", "airpods", "headphones", "screen only", "lcd", "digitizer",
+    "back glass", "housing", "flex cable", "logic board", "motherboard",
+    "for parts", "repair part", "replacement part",
+]
+
+# A real iPhone listing almost always states storage capacity
+# ("128GB", "256GB", "1TB", ...) — accessories essentially never do.
+MINIMUM_IPHONE_PRICE_USD = 100
+
 # Minimum price for a real computer (anything cheaper is an accessory/part)
 MINIMUM_PRICE_USD = 200
 
@@ -268,9 +290,32 @@ def is_likely_macbook_pro(title: str) -> bool:
 
 
 def is_likely_iphone(title: str) -> bool:
+    """
+    Check if a title is likely a real iPhone (not an accessory).
+
+    WHAT: Filters out cases, screen protectors, chargers, etc. that
+    mention a specific iPhone generation but aren't actual phones,
+    plus locked/broken/parts-only listings.
+    HOW: Rejects titles containing accessory or bad-condition
+    keywords, then requires at least one storage-capacity mention
+    (e.g. "256GB", "1TB") as the hardware-indicator check — mirrors
+    is_likely_macbook_pro()'s "must have at least one real spec"
+    requirement.
+    WHY: Unlike MacBook listings, iPhone accessory titles routinely
+    contain the exact generation name (e.g. "Case for iPhone 15 Pro
+    Max") because that's the product they're compatible with — a
+    plain keyword match can't tell an accessory from a real phone.
+    Real phone listings almost always state storage; accessories
+    almost never do, so that's the more reliable signal here.
+    """
     title_lower = title.lower()
     if "iphone" not in title_lower:
         return False
+
+    for kw in IPHONE_ACCESSORY_KEYWORDS:
+        if kw in title_lower:
+            return False
+
     locked = "locked" in title_lower and "unlocked" not in title_lower
     for kw in IPHONE_BAD_KEYWORDS:
         kw_lower = kw.lower()
@@ -280,6 +325,11 @@ def is_likely_iphone(title: str) -> bool:
             return False
     if locked:
         return False
+
+    has_storage = bool(re.search(r'\d+\s*(?:GB|TB)\b', title, re.IGNORECASE))
+    if not has_storage:
+        return False
+
     return True
 
 
@@ -615,7 +665,7 @@ class BaseScraper(ABC):
                 return False
         
         # Check price range
-        min_price = 100 if "iphone" in product_lower else MINIMUM_PRICE_USD
+        min_price = MINIMUM_IPHONE_PRICE_USD if "iphone" in product_lower else MINIMUM_PRICE_USD
         if listing.price_usd < min_price:
             return False
         if listing.price_usd > self.config.price.absolute_max_usd:
