@@ -405,12 +405,20 @@ class Notifier:
         WHAT: Turns `top_deals` + `stats` into one or more Discord
         "embed" dicts — the market snapshot field plus one field per
         deal — ready to drop into a webhook payload.
-        HOW: Discord caps each embed at 25 fields and each message at
-        10 embeds (250 fields max). We chunk top_deals into 24-field
-        pages (the first page's 25th slot is reserved for the market
-        snapshot field) via the inner `embed_with_deals` helper, so
-        every configured top_deals_count is shown, not just a
-        hardcoded 25.
+        HOW: Discord enforces two independent caps per embed: at most
+        25 fields, AND at most 6000 total characters across the
+        title + every field's name/value + the footer text combined
+        (this second cap is NOT the same as the field-count cap — a
+        page with only 10 long deal titles can still blow past 6000
+        chars while having 15 fields to spare, and a real production
+        run hit exactly this: 39 real deals in one embed exceeded
+        6000 chars and Discord rejected the whole message with a 400).
+        So each new field is added to a running character-length
+        counter, and a new embed page starts whenever either cap
+        would be exceeded — not just when the field count hits 25.
+        Also caps at 10 embeds per message (Discord's message-level
+        limit), so an unusually large top_deals_count still degrades
+        gracefully instead of failing to send at all.
         WHY: Pulled out of `_send_discord` so the embed-building/
         pagination logic can be read and reasoned about separately
         from webhook resolution and the actual HTTP call.
@@ -424,50 +432,64 @@ class Notifier:
         Returns:
             A list of embed dicts, ready for the `embeds` payload key.
         """
-        DEALS_PER_EMBED = 24
+        MAX_FIELDS_PER_EMBED = 25
         MAX_EMBEDS = 10
+        # Discord's hard limit is 6000; stay well under it since our
+        # own character count doesn't include Discord's per-field
+        # markdown/formatting overhead exactly, so leave real margin.
+        MAX_CHARS_PER_EMBED = 5500
 
         best = top_deals[0] if top_deals else None
 
-        embeds = []
-
-        def embed_with_deals(start: int, count: int) -> dict:
-            e = {
+        def new_embed() -> dict:
+            return {
                 "title": title,
                 "color": 0x00ff00 if best and best.is_great_deal else 0xffaa00,
                 "fields": [],
                 "footer": {"text": footer_text},
             }
-            if start == 0:
-                e["fields"].append({
-                    "name": "📊 Market Snapshot",
-                    "value": (
-                        f"**{stats['count']}** listings found\n"
-                        f"Price range: **${stats['min']:,.0f}** – "
-                        f"**${stats['max']:,.0f}**\n"
-                        f"Median: **${stats['median']:,.0f}**"
-                    ),
-                    "inline": False,
-                })
-            for i in range(start, min(start + count, len(top_deals))):
-                listing = top_deals[i]
-                rank = i + 1
-                emoji = "🔥" if listing.is_great_deal else "💰"
-                e["fields"].append({
-                    "name": f"{emoji} #{rank} — ${listing.price_usd:,.0f} | {listing.source}",
-                    "value": f"[{listing.title[:80]}]({clean_url(listing.url)}) — Score: {listing.deal_score}/100",
-                    "inline": False,
-                })
-            return e
 
-        # First page gets 1 fewer deal slot (24) to leave room for the
-        # market snapshot field; every later page gets the full 25.
-        start = 0
-        first_page_count = DEALS_PER_EMBED
-        while start < len(top_deals) and len(embeds) < MAX_EMBEDS:
-            count = first_page_count if start == 0 else 25
-            embeds.append(embed_with_deals(start, count))
-            start += count
+        def embed_char_count(e: dict) -> int:
+            total = len(e["title"]) + len(e["footer"]["text"])
+            for field in e["fields"]:
+                total += len(field["name"]) + len(field["value"])
+            return total
+
+        market_snapshot_field = {
+            "name": "📊 Market Snapshot",
+            "value": (
+                f"**{stats['count']}** listings found\n"
+                f"Price range: **${stats['min']:,.0f}** – "
+                f"**${stats['max']:,.0f}**\n"
+                f"Median: **${stats['median']:,.0f}**"
+            ),
+            "inline": False,
+        }
+
+        embeds = [new_embed()]
+        embeds[0]["fields"].append(market_snapshot_field)
+
+        for i, listing in enumerate(top_deals):
+            rank = i + 1
+            emoji = "🔥" if listing.is_great_deal else "💰"
+            field = {
+                "name": f"{emoji} #{rank} — ${listing.price_usd:,.0f} | {listing.source}",
+                "value": f"[{listing.title[:80]}]({clean_url(listing.url)}) — Score: {listing.deal_score}/100",
+                "inline": False,
+            }
+            field_chars = len(field["name"]) + len(field["value"])
+
+            current = embeds[-1]
+            over_field_cap = len(current["fields"]) >= MAX_FIELDS_PER_EMBED
+            over_char_cap = embed_char_count(current) + field_chars > MAX_CHARS_PER_EMBED
+
+            if over_field_cap or over_char_cap:
+                if len(embeds) >= MAX_EMBEDS:
+                    break  # Hit Discord's 10-embed-per-message cap — stop here.
+                embeds.append(new_embed())
+                current = embeds[-1]
+
+            current["fields"].append(field)
 
         return embeds
 
