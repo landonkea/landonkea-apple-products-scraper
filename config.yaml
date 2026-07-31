@@ -138,6 +138,19 @@ sites:
     # none work, it logs instructions for Playwright setup.
     search_url: "https://offerup.com/search/?q={{query}}"
 
+  gazelle:
+    enabled: true
+    # Gazelle's actual storefront lives on buy.gazelle.com (a Shopify
+    # store) — www.gazelle.com 404s on collection/product/search
+    # routes. The scraper hits buy.gazelle.com's public Shopify JSON
+    # endpoints directly: /collections/{handle}/products.json for
+    # known per-generation collections (e.g. iphone-17-pro-max), and
+    # /search/suggest.json as a site-wide fallback. Gazelle does not
+    # currently stock MacBooks (confirmed live — see gazelle.py's
+    # module docstring), so the MacBook Pro search legitimately finds
+    # 0 listings here today.
+    search_url: "https://buy.gazelle.com/search/suggest.json?q={{query}}&resources[type]=product"
+
   # Facebook Marketplace requires a login — we handle this via
   # environment variables for the session cookie.
   facebook:
