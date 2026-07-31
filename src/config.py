@@ -92,6 +92,8 @@ class SitesConfig:
     mercari: SiteConfig
     bestbuy: SiteConfig
     offerup: SiteConfig
+    newegg: SiteConfig
+    gazelle: SiteConfig
     facebook: SiteConfig
 
 
@@ -354,6 +356,8 @@ def load_config(path: str = "config.yaml") -> Config:
             mercari=_parse_site(sites_raw["mercari"]),
             bestbuy=_parse_site(sites_raw["bestbuy"]),
             offerup=_parse_site(sites_raw["offerup"]),
+            newegg=_parse_site(sites_raw["newegg"]),
+            gazelle=_parse_site(sites_raw["gazelle"]),
             facebook=_parse_site(sites_raw["facebook"]),
         ),
         alerts=AlertsConfig(
