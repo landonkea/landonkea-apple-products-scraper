@@ -12,6 +12,7 @@
 # The top deals are ranked by score and included in alerts.
 # ───────────────────────────────────────────────────────────────────
 
+import re
 import statistics
 from typing import Optional
 
@@ -176,7 +177,45 @@ class PriceAnalyzer:
                 score += 5
             elif any(word in cond_lower for word in ["open", "excellent"]):
                 score += 3
-        
+
+        # Factor 4: Chip generation bonus (weight: medium) — only
+        # meaningful when the search uses a generation_family window
+        # (chip_generation_map is empty for manually-configured searches).
+        s = self.config.search
+        if listing.chip and s.chip_generation_map:
+            gen = s.chip_generation_map.get(listing.chip)
+            if gen is not None:
+                newest_gen = max(s.chip_generation_map.values())
+                gens_back = newest_gen - gen
+                score += max(8 - 3 * gens_back, 0)  # newest +8, next +5, oldest +2
+
+        # Factor 5: Core count bonus (weight: low) — reward listings
+        # that state the flagship CPU/GPU core-count bin for their
+        # chip generation.  Listings that just don't mention core
+        # counts in the title (common) get no bonus and no penalty.
+        if listing.chip and s.core_count_reference:
+            gen_match = re.search(r'\d+', listing.chip)
+            gen = int(gen_match.group()) if gen_match else None
+            reference = s.core_count_reference.get(gen) if gen is not None else None
+            if reference and listing.cpu_cores and listing.gpu_cores:
+                if (listing.cpu_cores >= reference.get("cpu", 0)
+                        and listing.gpu_cores >= reference.get("gpu", 0)):
+                    score += 4
+
+        # Factor 6: Screen size preference (weight: low) — earlier
+        # entries in screen_sizes are preferred (e.g. [14, 16] means
+        # 14" is preferred, 16" is an accepted fallback).
+        if listing.screen_size and s.screen_sizes:
+            for i, size in enumerate(s.screen_sizes):
+                if abs(listing.screen_size - size) < 1.0:
+                    score += max(3 - 2 * i, 0)  # 1st +3, 2nd +1, 3rd+ +0
+                    break
+
+        # Factor 7: Storage bonus (weight: lowest) — bigger is better,
+        # but this matters least of all the specs.
+        if listing.storage_gb:
+            score += min(listing.storage_gb / 8192 * 3, 3)  # up to +3 at 8TB
+
         # Clamp to 0-100
         score = max(0, min(100, score))
         

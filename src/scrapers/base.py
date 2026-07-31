@@ -44,6 +44,8 @@ class ScrapedListing:
     screen_size: Optional[float]  # Parsed from title (e.g. 14.0)
     chip: Optional[str]        # Parsed from title (e.g. "M5 Max")
     location: Optional[str]    # City/state from the listing
+    cpu_cores: Optional[int] = None  # Parsed from title (e.g. 16-Core CPU)
+    gpu_cores: Optional[int] = None  # Parsed from title (e.g. 40-Core GPU)
 
 
 # ── Spec-parsing helpers ───────────────────────────────────────────
@@ -156,17 +158,44 @@ def extract_screen_size(title: str) -> Optional[float]:
 def extract_chip(title: str) -> Optional[str]:
     """
     Find the chip name in a listing title.
-    
+
     Looks for "M5 Max", "M4 Max", "M5 Pro", etc.
     Also matches plain "M4", "M5" without suffix.
+
+    Uses M\\d{1,2} (not a hardcoded M1-M5 range) so future chip
+    generations (M6, M7, ...) parse correctly without a code change.
     """
-    match = re.search(r'(M[1-5]\s*(?:Pro|Max|Ultra))', title, re.IGNORECASE)
+    match = re.search(r'(M\d{1,2}\s*(?:Pro|Max|Ultra))', title, re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    match = re.search(r'\b(M[1-5])\b', title, re.IGNORECASE)
+    match = re.search(r'\b(M\d{1,2})\b', title, re.IGNORECASE)
     if match:
         return match.group(1).strip()
     return None
+
+
+def extract_core_counts(title: str) -> tuple[Optional[int], Optional[int]]:
+    """
+    Find CPU and GPU core counts in a listing title.
+
+    Looks for Apple's standard spec phrasing, e.g.
+    "16-Core CPU and 40-Core GPU" or "16 Core CPU / 40 Core GPU".
+
+    Returns:
+        (cpu_cores, gpu_cores) — either may be None if not found.
+    """
+    cpu_cores = None
+    gpu_cores = None
+
+    cpu_match = re.search(r'(\d+)[\s‑-]*Core\s*CPU', title, re.IGNORECASE)
+    if cpu_match:
+        cpu_cores = int(cpu_match.group(1))
+
+    gpu_match = re.search(r'(\d+)[\s‑-]*Core\s*GPU', title, re.IGNORECASE)
+    if gpu_match:
+        gpu_cores = int(gpu_match.group(1))
+
+    return cpu_cores, gpu_cores
 
 
 ACCESSORY_KEYWORDS = [
@@ -227,7 +256,7 @@ def is_likely_macbook_pro(title: str) -> bool:
             return False
     
     # Must have at least one hardware indicator
-    has_chip = bool(re.search(r'M[1-5]\s*(?:Pro|Max|Ultra)', title, re.IGNORECASE))
+    has_chip = bool(re.search(r'M\d{1,2}\s*(?:Pro|Max|Ultra)', title, re.IGNORECASE))
     has_screen = bool(re.search(r'\d{2}\s*[‑\-]?\s*inch', title, re.IGNORECASE)) or bool(re.search(r'\d{2}"', title))
     has_ram = bool(re.search(r'\d+\s*GB\s*(?:RAM|Memory|Unified)', title, re.IGNORECASE))
     has_storage = bool(re.search(r'\d+\s*(?:TB|GB)\s*(?:SSD|Storage)', title, re.IGNORECASE))
@@ -449,6 +478,11 @@ class BaseScraper(ABC):
     def extract_chip(title: str) -> Optional[str]:
         """Extract chip name from a listing title."""
         return extract_chip(title)
+
+    @staticmethod
+    def extract_cores(title: str) -> tuple[Optional[int], Optional[int]]:
+        """Extract (cpu_cores, gpu_cores) from a listing title."""
+        return extract_core_counts(title)
     
     # ── Filter method ──────────────────────────────────────────
     def passes_filters(self, listing: ScrapedListing) -> bool:
@@ -476,8 +510,17 @@ class BaseScraper(ABC):
             if not is_likely_iphone(listing.title):
                 return False
         
-        # Check chip (only if a chip filter is configured)
-        if s.chip:
+        # Check chip (only if a chip filter is configured).
+        # If chip_options is set (via a generation_family), it's a
+        # rolling window of the last N flagship generations — match
+        # against any of them instead of a fixed primary/fallback pair.
+        if s.chip_options:
+            if not listing.chip:
+                return False
+            listing_chip_lower = listing.chip.lower()
+            if not any(opt.lower() in listing_chip_lower for opt in s.chip_options):
+                return False
+        elif s.chip:
             if not listing.chip:
                 return False
             chip_primary = s.chip.lower()
@@ -487,7 +530,14 @@ class BaseScraper(ABC):
                 chip_fallback_ok = s.chip_fallback.lower() in listing.chip.lower()
             if not (chip_primary_ok or chip_fallback_ok):
                 return False
-        
+
+        # Check model generation keywords (only if configured, e.g. for
+        # iPhone where the generation number lives in the title, not a
+        # separately parsed field like chip).
+        if s.model_keywords:
+            if not any(kw.lower() in title_lower for kw in s.model_keywords):
+                return False
+
         # Check screen size (only if screen_sizes is configured)
         if s.screen_sizes and listing.screen_size:
             size_ok = any(

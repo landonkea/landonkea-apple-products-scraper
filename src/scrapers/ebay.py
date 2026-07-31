@@ -257,7 +257,8 @@ class eBayScraper(BaseScraper):
         storage = self.extract_storage(title)
         screen = self.extract_screen(title)
         chip = self.extract_chip(title)
-        
+        cpu_cores, gpu_cores = self.extract_cores(title)
+
         if ram is None:
             if "128GB" in url or "128+GB" in url:
                 ram = 128
@@ -276,4 +277,6 @@ class eBayScraper(BaseScraper):
             screen_size=screen,
             chip=chip,
             location=None,
+            cpu_cores=cpu_cores,
+            gpu_cores=gpu_cores,
         )
