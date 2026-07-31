@@ -11,7 +11,7 @@ import re
 import time
 from typing import Optional
 
-from scrapers.base import BaseScraper, ScrapedListing
+from scrapers.base import BaseScraper, ScrapedListing, MINIMUM_IPHONE_PRICE_USD, MINIMUM_PRICE_USD
 from config import Config
 
 
@@ -47,6 +47,21 @@ class eBayScraper(BaseScraper):
         makes eBay's own search put matching listings on page 1 instead
         of relying on client-side filtering of an irrelevant page.
 
+        WHY a minimum-price floor is also needed (iPhone specifically):
+        the OR-group alone isn't enough for iPhone — a real production
+        check found page 1 of "iPhone Pro Max (iPhone 17 Pro Max,...)"
+        was 122/122 items, ALL $0.99-$4.95 accessories (screen
+        protectors, camera lens covers, USB-C dust plugs, adhesive
+        tape, antenna boosters...), because accessory titles routinely
+        contain "iPhone 15 Pro Max" etc. (it's compatibility text, not
+        spec text) — so eBay's relevance ranking can't distinguish them
+        from real phones the way it can for MacBook chip names. A
+        negative-keyword blacklist doesn't scale here — sellers use
+        far too many accessory-category terms to enumerate. eBay's
+        `_udlo` (price floor) parameter is more robust: it excludes
+        every sub-$100 listing at the source, regardless of category,
+        since a real iPhone is never listed under $100.
+
         Args:
             screen_size: Screen size in inches (14 or 16), or None for products without screen sizes.
 
@@ -67,13 +82,35 @@ class eBayScraper(BaseScraper):
         if generation_terms:
             query += " (" + ",".join(generation_terms) + ")"
 
+        if "iphone" in product.lower():
+            # Negative keywords AND a price floor both proved
+            # insufficient in practice — eBay's iPhone-accessory
+            # long tail is effectively infinite (gimbal stabilizers,
+            # camera lens attachments, keyboards, OEM parts...), and
+            # designer/luxury cases price right at $100+, so no
+            # blacklist or floor fully clears page 1. What actually
+            # works: requiring a storage-capacity term, since real
+            # phone listings always state it ("256GB", "1TB") and
+            # accessories essentially never do — this is a positive
+            # signal instead of an unwinnable exclusion list.
+            storage_terms = []
+            if self.config.search.storage_gb_min and self.config.search.storage_gb_min >= 1000:
+                storage_terms = ["1TB", "2TB"]
+            if storage_terms:
+                query += " (" + ",".join(storage_terms) + ")"
+
         encoded_query = query.replace(" ", "+")
+
+        # Server-side price floor — cheap defense-in-depth alongside
+        # the storage-term requirement above.
+        min_price = MINIMUM_IPHONE_PRICE_USD if "iphone" in product.lower() else MINIMUM_PRICE_USD
 
         url = (
             f"https://www.ebay.com/sch/i.html"
             f"?_nkw={encoded_query}"
             f"&LH_ItemCondition=4|3|2|1500|1000|2000"
             f"&_sop=15"
+            f"&_udlo={min_price}"
             f"&_udhi={max_price}"
             f"&_ipg=120"
         )
