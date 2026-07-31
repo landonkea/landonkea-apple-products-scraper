@@ -11,6 +11,8 @@ import yaml
 from typing import Optional
 from dataclasses import dataclass, field
 
+from environment import get_environment
+
 
 # ── Helper: merge env vars into config ─────────────────────────────
 # Some settings (passwords, webhook URLs) should NEVER be in
@@ -27,6 +29,11 @@ def _load_env_secrets() -> dict:
         "email_to":   os.environ.get("ALERT_EMAIL_TO"),
         "gmail_app_password": os.environ.get("GMAIL_APP_PASSWORD"),
         "discord_webhook_url": os.environ.get("DISCORD_WEBHOOK_URL"),
+        # Optional separate webhook for dev/staging test runs, so a
+        # local run can post somewhere harmless instead of the real
+        # production channel. See notifier.py's _send_discord() for
+        # how this is used alongside is_production().
+        "discord_webhook_url_dev": os.environ.get("DISCORD_WEBHOOK_URL_DEV"),
     }
 
 
@@ -46,8 +53,6 @@ class SearchConfig:
     ram_gb_fallback: Optional[int]
     storage_gb_min: Optional[int]
     storage_gb_max: Optional[int]
-    cpu_cores_min: Optional[int]
-    gpu_cores_min: Optional[int]
     results_per_size: int
     location: Optional[str]
     # ── Generation-window fields (set when a search opts into a
@@ -117,6 +122,75 @@ class DatabaseConfig:
     url: str
 
 
+# ── Helper: keep dev/staging runs off the production database file ─
+# WHY: config.yaml hardcodes one database URL (the production one,
+# e.g. "sqlite:///data/listings.db") which GitHub Actions reads,
+# writes to, and commits back to the repo on every scheduled run.
+# If a local dev/staging run used that exact same URL, it would open
+# the *same* SQLite file — and SQLite doesn't handle concurrent
+# writers from separate processes gracefully. This exact problem
+# happened in practice: a stray local process held the production DB
+# file open, and the next GitHub Actions run failed with a "readonly
+# database" error because the file was locked.
+#
+# The fix: whenever we're not in production, we rewrite the database
+# URL to point at a sibling file (".dev.db" / ".staging.db" instead
+# of ".db") so local test runs get their own on-disk database that
+# can never collide with the one GitHub Actions maintains.
+def _environment_scoped_db_url(url: str, environment: str) -> str:
+    """
+    Return a database URL scoped to the given environment.
+
+    WHAT:
+        In production, returns `url` unchanged. In dev or staging,
+        inserts a ".dev" or ".staging" suffix before the file
+        extension, so each environment gets its own database file
+        on disk instead of sharing the production one.
+
+    HOW:
+        Splits `url` at the last "." (the extension separator) and
+        rebuilds it with the environment name spliced in, e.g.:
+            "sqlite:///data/listings.db" + "dev"
+                -> "sqlite:///data/listings.dev.db"
+        If `url` has no extension (no "." after the last "/"), the
+        suffix is simply appended, so this never raises on unusual
+        URLs — it degrades to "just add a suffix."
+
+    WHY (see module-level comment above _environment_scoped_db_url):
+        Prevents local/staging runs from ever opening the exact same
+        SQLite file that the production GitHub Actions workflow
+        reads and writes, which previously caused a "readonly
+        database" error when a stray local process held the real
+        production file locked.
+
+    Args:
+        url: The raw database URL from config.yaml (production URL).
+        environment: One of "dev", "staging", "production" — usually
+            the return value of environment.get_environment().
+
+    Returns:
+        The (possibly suffixed) database URL to actually use.
+    """
+    if environment == "production":
+        return url
+
+    # Split off everything after the last "/" so a "." in a directory
+    # name (unlikely, but be safe) doesn't get treated as the
+    # extension separator.
+    last_slash = url.rfind("/")
+    dir_part = url[: last_slash + 1]
+    file_part = url[last_slash + 1 :]
+
+    if "." in file_part:
+        stem, _, ext = file_part.rpartition(".")
+        scoped_file_part = f"{stem}.{environment}.{ext}"
+    else:
+        # No extension to split on — just append the suffix.
+        scoped_file_part = f"{file_part}.{environment}"
+
+    return f"{dir_part}{scoped_file_part}"
+
+
 @dataclass
 class Config:
     """
@@ -135,6 +209,12 @@ class Config:
     database: DatabaseConfig
     schedule: dict
     secrets: dict = field(default_factory=_load_env_secrets)
+    # Which environment this run is executing in — "dev", "staging",
+    # or "production". Defaulted via get_environment() (which itself
+    # defaults to "production" when ENVIRONMENT is unset) so existing
+    # callers that construct Config directly, or call load_config()
+    # without touching this field, keep working unchanged.
+    environment: str = field(default_factory=get_environment)
 
 
 # ── Helper: build a SiteConfig from raw YAML ──────────────────────
@@ -218,6 +298,10 @@ def load_config(path: str = "config.yaml") -> Config:
     with open(path, "r") as f:
         raw = yaml.safe_load(f)
 
+    # Determine environment once, up front, so it can be used both to
+    # scope the database URL below and to populate Config.environment.
+    environment = get_environment()
+
     # Grab each section
     searches_raw    = raw["searches"]
     price_raw       = raw["price"]
@@ -239,8 +323,6 @@ def load_config(path: str = "config.yaml") -> Config:
             ram_gb_fallback=s.get("ram_gb_fallback"),
             storage_gb_min=s.get("storage_gb_min"),
             storage_gb_max=s.get("storage_gb_max"),
-            cpu_cores_min=s.get("cpu_cores_min"),
-            gpu_cores_min=s.get("gpu_cores_min"),
             results_per_size=s.get("results_per_size", 30),
             location=s.get("location"),
             chip_options=s.get("chip_options", []),
@@ -284,9 +366,12 @@ def load_config(path: str = "config.yaml") -> Config:
                 enabled=alerts_raw["discord"]["enabled"],
             ),
         ),
-        database=DatabaseConfig(url=db_raw["url"]),
+        database=DatabaseConfig(
+            url=_environment_scoped_db_url(db_raw["url"], environment)
+        ),
         schedule=raw["schedule"],
         secrets=_load_env_secrets(),
+        environment=environment,
     )
 
     return config

@@ -31,25 +31,44 @@ class eBayScraper(BaseScraper):
     def _build_search_url(self, screen_size: Optional[int]) -> str:
         """
         Build an eBay search URL for a specific screen size.
-        
-        Searches broadly for "MacBook Pro 14-inch" / "MacBook Pro 16-inch"
+
+        Searches for "MacBook Pro 14-inch" / "MacBook Pro 16-inch",
         sorted by lowest price + shipping first.
-        
+
+        WHY the chip/model OR-group matters: eBay's own text-relevance
+        ranking is what actually filters results, since this scraper
+        only fetches page 1 (~100-120 items) with no pagination. A bare
+        "MacBook Pro 14-inch" query sorted price-ascending returns cases,
+        screen protectors, and base-chip listings under $300 before it
+        ever reaches a $2,000+ M5/M4/M3 Max machine — page 1 never
+        contains a single matching listing. Appending the generations
+        we actually want as an eBay OR-group (`(M5 Max,M4 Max,M3 Max)`
+        — eBay's comma-in-parentheses syntax for "any of these terms")
+        makes eBay's own search put matching listings on page 1 instead
+        of relying on client-side filtering of an irrelevant page.
+
         Args:
             screen_size: Screen size in inches (14 or 16), or None for products without screen sizes.
-        
+
         Returns:
             A fully-formed eBay search URL sorted by price ascending.
         """
         product = self.config.search.product_name
         max_price = int(self.config.price.absolute_max_usd)
-        
+
         if screen_size:
             query = f"{product} {screen_size}-inch"
         else:
             query = product
+
+        # Narrow eBay's own ranking to the generations we're tracking —
+        # see the docstring above for why this is necessary, not optional.
+        generation_terms = self.config.search.chip_options or self.config.search.model_keywords
+        if generation_terms:
+            query += " (" + ",".join(generation_terms) + ")"
+
         encoded_query = query.replace(" ", "+")
-        
+
         url = (
             f"https://www.ebay.com/sch/i.html"
             f"?_nkw={encoded_query}"
@@ -58,7 +77,7 @@ class eBayScraper(BaseScraper):
             f"&_udhi={max_price}"
             f"&_ipg=120"
         )
-        
+
         return url
     
     def _parse_listing_id(self, url: str) -> str:
@@ -253,11 +272,13 @@ class eBayScraper(BaseScraper):
         
         condition = condition_elem.get_text(strip=True) if condition_elem else None
         
-        ram = self.extract_ram(title)
-        storage = self.extract_storage(title)
-        screen = self.extract_screen(title)
-        chip = self.extract_chip(title)
-        cpu_cores, gpu_cores = self.extract_cores(title)
+        specs = self.parse_common_specs(title)
+        ram = specs["ram_gb"]
+        storage = specs["storage_gb"]
+        screen = specs["screen_size"]
+        chip = specs["chip"]
+        cpu_cores = specs["cpu_cores"]
+        gpu_cores = specs["gpu_cores"]
 
         if ram is None:
             if "128GB" in url or "128+GB" in url:

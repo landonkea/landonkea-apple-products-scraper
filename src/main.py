@@ -1,7 +1,7 @@
 # ───────────────────────────────────────────────────────────────────
 # Main orchestrator — runs all scrapers, analyzes prices, alerts
 # ───────────────────────────────────────────────────────────────────
-# This is the entry point.  When `mac-deal-scraper` is run (either
+# This is the entry point.  When `apple-product-scraper` is run (either
 # locally or via GitHub Actions), this script:
 #
 #   1. Loads config.yaml
@@ -199,26 +199,148 @@ def expire_stale_listings(db, hours: int = 72) -> int:
     return len(stale)
 
 
+def _run_one_search(config: Config, search_config, db) -> None:
+    """
+    Run one product search end-to-end: scrape, save, analyze, alert.
+
+    WHAT: Everything needed to go from "a search config for one
+    product" (e.g. MacBook Pro or iPhone) to alerts being sent, for
+    that product only — scrape all enabled sites, save/upsert results
+    to the DB, record daily price stats, compute deal scores, and
+    notify if there are new listings or great deals.
+    HOW: Points `config.search` at this iteration's `search_config`
+    (scrapers/analyzer/notifier all read product-specific settings off
+    `config.search`), builds fresh per-product `PriceAnalyzer` and
+    `Notifier` instances, runs every enabled scraper, upserts results,
+    records stats, analyzes prices, and finally sends alerts if
+    warranted.
+    WHY: `run_scrape()` used to inline this whole pipeline inside its
+    `for search_config in config.searches:` loop, making it a single
+    ~150-line function that mixed one-time setup with per-product
+    work. Extracting the loop body here means `run_scrape()` is now
+    just "setup, then run one search per configured product, then
+    export," and this function's job — one product's full pipeline —
+    can be read (and eventually tested) on its own.
+
+    Args:
+        config: The global Config object. `config.search` is mutated
+            to point at `search_config` for the duration of this call,
+            matching the pre-existing behavior of the original loop.
+        search_config: The per-product search settings for this run
+            (product name, screen sizes, chip, RAM, etc.).
+        db: Database session, shared across all searches in this run.
+    """
+    product_name = search_config.product_name
+    print(f"\n{'─'*60}")
+    print(f"  Searching for: {product_name}")
+    print(f"{'─'*60}\n")
+
+    # Create a temporary config with this search
+    config.search = search_config
+
+    # Analyzer (one per product)
+    analyzer = PriceAnalyzer(config)
+
+    # Notifier (one per product)
+    notifier = Notifier(config)
+
+    # Scrapers
+    scrapers = get_enabled_scrapers(config)
+
+    # ── 2a. Run all scrapers ───────────────────────────────
+    print("🔍 Scraping marketplaces...")
+
+    all_scraped: list[ScrapedListing] = []
+
+    for scraper in scrapers:
+        print(f"\n  ── {scraper.source_name.upper()} ──")
+        try:
+            found = scraper.scrape()
+            all_scraped.extend(found)
+        except Exception as e:
+            print(f"  ❌ {scraper.source_name} failed: {e}")
+            continue
+
+    print(f"\n  Total raw listings found: {len(all_scraped)}")
+
+    # ── 2b. Save to database ───────────────────────────────
+    print("\n💾 Saving to database...")
+
+    db_listings: list[Listing] = []
+    for scraped in all_scraped:
+        try:
+            db_obj = listing_to_db(db, scraped, config)
+            db_listings.append(db_obj)
+        except Exception as e:
+            print(f"  [DB] Error saving {scraped.title[:50]}: {e}")
+            continue
+
+    print(f"  Saved/updated {len(db_listings)} listings")
+
+    # ── 2b-2. Record daily price stats (for trend charts) ──
+    stat_rows = record_daily_stats(db, search_config, db_listings)
+    if stat_rows:
+        print(f"  [Stats] Updated {stat_rows} daily price-stat group(s)")
+
+    # ── 2c. Analyze prices ─────────────────────────────────
+    print("\n📊 Analyzing prices...")
+    analyzed = analyzer.analyze(db_listings)
+    stats = analyzer.get_stats()
+
+    print(f"  Listings analyzed: {stats['count']}")
+    print(f"  Price range: ${stats['min']:,.0f} – ${stats['max']:,.0f}")
+    print(f"  Median: ${stats['median']:,.0f} | Mean: ${stats['mean']:,.0f}")
+
+    # Show top deals
+    top_deals = analyzer.get_top_deals()
+    if top_deals:
+        print(f"\n  🔥 Top {len(top_deals)} Deals:")
+        for i, l in enumerate(top_deals[:5], 1):
+            emoji = "🔥" if l.is_great_deal else "💰"
+            print(f"    {emoji} #{i}: ${l.price_usd:,.0f} "
+                  f"| {l.source} "
+                  f"| Score: {l.deal_score}")
+
+    # ── 2d. Find truly new listings ────────────────────────
+    print("\n🆕 Checking for new listings...")
+    new_listings = find_new_listings(db, all_scraped)
+    print(f"  Truly new: {len(new_listings)}")
+
+    # ── 2e. Send alerts ────────────────────────────────────
+    print("\n📬 Sending alerts...")
+
+    has_great_deals = any(l.is_great_deal for l in top_deals)
+
+    if new_listings or has_great_deals:
+        notifier.send_alert(top_deals, stats)
+    else:
+        print("  No new listings or great deals — skipping alert.")
+
+
 def run_scrape(config: Config) -> int:
     """
     Run the full scrape cycle.
-    
+
     This is the main function called by the CLI or GitHub Action.
-    
+
     Args:
         config: The global Config object.
-    
+
     Returns:
         0 on success, 1 on error.
     """
     print(f"\n{'='*60}")
-    print(f"  Mac/iOS Deal Scraper — Starting Run")
+    print(f"  Apple Product Scraper — Starting Run")
     print(f"  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    # Print the active environment prominently — this is the single
+    # most important line in the banner for telling a real production
+    # run apart from a local dev/staging test run at a glance.
+    print(f"  Environment: {config.environment}")
     print(f"{'='*60}\n")
-    
+
     # ── 1. Setup ───────────────────────────────────────────────
     print("📦 Initializing...")
-    
+
     # Database
     db = get_session(config.database.url)
     print(f"  [DB] Connected to {config.database.url}")
@@ -230,94 +352,10 @@ def run_scrape(config: Config) -> int:
     print(f"  [DB] Expired {expired_count} listings not seen in 72+ hours")
 
     print()
-    
+
     # ── 2. Run search for each product ─────────────────────────
-    for search_idx, search_config in enumerate(config.searches):
-        product_name = search_config.product_name
-        print(f"\n{'─'*60}")
-        print(f"  Searching for: {product_name}")
-        print(f"{'─'*60}\n")
-        
-        # Create a temporary config with this search
-        config.search = search_config
-        
-        # Analyzer (one per product)
-        analyzer = PriceAnalyzer(config)
-        
-        # Notifier (one per product)
-        notifier = Notifier(config)
-        
-        # Scrapers
-        scrapers = get_enabled_scrapers(config)
-        
-        # ── 2a. Run all scrapers ───────────────────────────────
-        print("🔍 Scraping marketplaces...")
-        
-        all_scraped: list[ScrapedListing] = []
-        
-        for scraper in scrapers:
-            print(f"\n  ── {scraper.source_name.upper()} ──")
-            try:
-                found = scraper.scrape()
-                all_scraped.extend(found)
-            except Exception as e:
-                print(f"  ❌ {scraper.source_name} failed: {e}")
-                continue
-        
-        print(f"\n  Total raw listings found: {len(all_scraped)}")
-        
-        # ── 2b. Save to database ───────────────────────────────
-        print("\n💾 Saving to database...")
-        
-        db_listings: list[Listing] = []
-        for scraped in all_scraped:
-            try:
-                db_obj = listing_to_db(db, scraped, config)
-                db_listings.append(db_obj)
-            except Exception as e:
-                print(f"  [DB] Error saving {scraped.title[:50]}: {e}")
-                continue
-        
-        print(f"  Saved/updated {len(db_listings)} listings")
-
-        # ── 2b-2. Record daily price stats (for trend charts) ──
-        stat_rows = record_daily_stats(db, search_config, db_listings)
-        if stat_rows:
-            print(f"  [Stats] Updated {stat_rows} daily price-stat group(s)")
-
-        # ── 2c. Analyze prices ─────────────────────────────────
-        print("\n📊 Analyzing prices...")
-        analyzed = analyzer.analyze(db_listings)
-        stats = analyzer.get_stats()
-        
-        print(f"  Listings analyzed: {stats['count']}")
-        print(f"  Price range: ${stats['min']:,.0f} – ${stats['max']:,.0f}")
-        print(f"  Median: ${stats['median']:,.0f} | Mean: ${stats['mean']:,.0f}")
-        
-        # Show top deals
-        top_deals = analyzer.get_top_deals()
-        if top_deals:
-            print(f"\n  🔥 Top {len(top_deals)} Deals:")
-            for i, l in enumerate(top_deals[:5], 1):
-                emoji = "🔥" if l.is_great_deal else "💰"
-                print(f"    {emoji} #{i}: ${l.price_usd:,.0f} "
-                      f"| {l.source} "
-                      f"| Score: {l.deal_score}")
-        
-        # ── 2d. Find truly new listings ────────────────────────
-        print("\n🆕 Checking for new listings...")
-        new_listings = find_new_listings(db, all_scraped)
-        print(f"  Truly new: {len(new_listings)}")
-        
-        # ── 2e. Send alerts ────────────────────────────────────
-        print("\n📬 Sending alerts...")
-        
-        has_great_deals = any(l.is_great_deal for l in top_deals)
-        
-        if new_listings or has_great_deals:
-            notifier.send_alert(top_deals, stats)
-        else:
-            print("  No new listings or great deals — skipping alert.")
+    for search_config in config.searches:
+        _run_one_search(config, search_config, db)
 
     # ── 2f. Export price-trend data for the GitHub Pages site ──
     print("\n📈 Updating price trend charts...")
@@ -338,9 +376,9 @@ def main():
     CLI entry point.
     
     Usage:
-        mac-deal-scraper                    # Normal run
-        mac-deal-scraper --config path.yaml  # Custom config path
-        mac-deal-scraper --once              # Single run (for testing)
+        apple-product-scraper                    # Normal run
+        apple-product-scraper --config path.yaml  # Custom config path
+        apple-product-scraper --once              # Single run (for testing)
     
     When run via GitHub Actions, this is called automatically.
     """

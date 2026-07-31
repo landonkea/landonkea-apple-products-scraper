@@ -2,7 +2,7 @@
 # GitHub Actions workflow — runs the scraper every 6 hours
 # ───────────────────────────────────────────────────────────────────
 # This file tells GitHub to:
-#   1. Run `mac-deal-scraper` every 6 hours via cron
+#   1. Run `apple-product-scraper` every 6 hours via cron
 #   2. Allow manual triggering from the GitHub UI ("workflow_dispatch")
 #   3. Commit the SQLite database back to the repo so we don't
 #      lose seen listings between runs
@@ -18,7 +18,7 @@
 #   4. Done! The scraper runs automatically.
 # ───────────────────────────────────────────────────────────────────
 
-name: Mac Deal Scraper
+name: Apple Product Scraper
 
 # ── Prevent overlapping runs ───────────────────────────────────────
 # If a scheduled run and a manual (workflow_dispatch) run ever
@@ -27,7 +27,7 @@ name: Mac Deal Scraper
 # forces runs to queue instead of running in parallel, so there's
 # only ever one "git push" happening at a time.
 concurrency:
-  group: mac-deal-scraper
+  group: apple-product-scraper
   cancel-in-progress: false
 
 # ── When to run ──────────────────────────────────────────────────
@@ -84,6 +84,12 @@ jobs:
       # 5. Run the scraper
       - name: Run scraper
         env:
+          # Explicitly declare that this is the real production run —
+          # the only place that should ever post to the live Discord
+          # channel and write to the real data/listings.db. Previously
+          # this was an implicit default (ENVIRONMENT was unset); now
+          # it's a visible, intentional declaration. See src/environment.py.
+          ENVIRONMENT: production
           # Pass secrets as environment variables
           ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
           ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
@@ -98,8 +104,8 @@ jobs:
       #    and publishes the latest trend data to the GitHub Pages site.
       - name: Commit database and chart data updates
         run: |
-          git config user.name "Mac Deal Scraper Bot"
-          git config user.email "bot@landonkea-mac-deal-alert"
+          git config user.name "Apple Product Scraper Bot"
+          git config user.email "bot@landonkea-apple-products-scraper"
 
           # Add the database file and the GitHub Pages data file
           git add data/listings.db docs/data/daily_stats.json 2>/dev/null || true
@@ -110,4 +116,20 @@ jobs:
           else
             git commit -m "chore: update listings database + price trend data [skip ci]"
             git push
+          fi
+
+      # 7. Notify Discord if the run failed
+      #    Without this, a failed run (bad scraper code, git push
+      #    conflict, etc.) fails silently — the only sign is a red X
+      #    on GitHub that nobody's watching. This posts straight to
+      #    the same Discord channel as the deal alerts.
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+            curl -s -X POST -H "Content-Type: application/json" \
+              -d "{\"content\": \"⚠️ **Apple Products Scraper** run failed. [View logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\"}" \
+              "$DISCORD_WEBHOOK_URL"
           fi

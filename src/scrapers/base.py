@@ -483,7 +483,52 @@ class BaseScraper(ABC):
     def extract_cores(title: str) -> tuple[Optional[int], Optional[int]]:
         """Extract (cpu_cores, gpu_cores) from a listing title."""
         return extract_core_counts(title)
-    
+
+    def parse_common_specs(self, title: str) -> dict:
+        """
+        Parse all the common ScrapedListing specs out of a title in one call.
+
+        What: Runs extract_ram / extract_storage / extract_screen /
+        extract_chip / extract_cores against the title and packages the
+        results into a dict keyed the same as the ScrapedListing fields
+        they feed: "ram_gb", "storage_gb", "screen_size", "chip",
+        "cpu_cores", "gpu_cores".
+
+        How: Simply calls the existing extract_* static methods on this
+        class — no new parsing logic, just a single entry point that
+        bundles them.
+
+        Why: Every scraper (ebay, swappa, apple_refurb, backmarket,
+        mercari, bestbuy, offerup) was repeating the same five-line block
+        before constructing a ScrapedListing. Consolidating it here means
+        there's exactly one place to touch if a new spec ever needs
+        parsing — which matters as this project is about to add more
+        product lines (e.g. Vision Pro, other XR devices) that will
+        reuse this same base class.
+
+        Scrapers with special-case logic (e.g. swappa preferring an
+        API-provided chip over the regex-parsed one, mercari falling
+        back to a detail-page fetch for chip) should still call this
+        method for the common fields and then override the relevant
+        key(s) in the returned dict afterward.
+
+        Args:
+            title: The listing title to parse.
+
+        Returns:
+            A dict with keys "ram_gb", "storage_gb", "screen_size",
+            "chip", "cpu_cores", "gpu_cores".
+        """
+        cpu_cores, gpu_cores = self.extract_cores(title)
+        return {
+            "ram_gb": self.extract_ram(title),
+            "storage_gb": self.extract_storage(title),
+            "screen_size": self.extract_screen(title),
+            "chip": self.extract_chip(title),
+            "cpu_cores": cpu_cores,
+            "gpu_cores": gpu_cores,
+        }
+
     # ── Filter method ──────────────────────────────────────────
     def passes_filters(self, listing: ScrapedListing) -> bool:
         """

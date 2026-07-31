@@ -190,10 +190,11 @@ class MercariScraper(BaseScraper):
         condition = None
 
         # Extract specs from the title string.
-        ram = self.extract_ram(title)
-        storage = self.extract_storage(title)
-        screen = self.extract_screen(title)
-        chip = self.extract_chip(title)
+        specs = self.parse_common_specs(title)
+        ram = specs["ram_gb"]
+        storage = specs["storage_gb"]
+        screen = specs["screen_size"]
+        chip = specs["chip"]
 
         # Mercari sellers rarely put chip names in the listing title.
         # If chip wasn't found, fetch the detail page and look for
@@ -209,7 +210,8 @@ class MercariScraper(BaseScraper):
         if not chip and "macbook pro" in title.lower() and price > 2000:
             chip = self.config.search.chip
 
-        cpu_cores, gpu_cores = self.extract_cores(title)
+        cpu_cores = specs["cpu_cores"]
+        gpu_cores = specs["gpu_cores"]
 
         return ScrapedListing(
             source=self.source_name,
