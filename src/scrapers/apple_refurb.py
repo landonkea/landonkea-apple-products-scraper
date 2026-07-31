@@ -49,8 +49,15 @@ class AppleRefurbScraper(BaseScraper):
             ]
         else:
             product = self.config.search.product_name
-            slug = product.lower().replace(" ", "-")
-            urls = [f"https://www.apple.com/shop/refurbished/{slug}"]
+            if "iphone" in product.lower():
+                # Apple's refurb store has no per-model iPhone page
+                # (e.g. "iphone-17-pro-max" 404s) — only the category
+                # root works. passes_filters()'s model_keywords check
+                # narrows results down to the generations we want.
+                urls = ["https://www.apple.com/shop/refurbished/iphone"]
+            else:
+                slug = product.lower().replace(" ", "-")
+                urls = [f"https://www.apple.com/shop/refurbished/{slug}"]
         
         # Use a set of listing IDs we've already seen so we don't
         # add the same product twice (both pages return ALL products)
@@ -186,7 +193,8 @@ class AppleRefurbScraper(BaseScraper):
         storage = self.extract_storage(title)
         screen = self.extract_screen(title)
         chip = self.extract_chip(title)
-        
+        cpu_cores, gpu_cores = self.extract_cores(title)
+
         return ScrapedListing(
             source=self.source_name,
             listing_id=listing_id,
@@ -199,4 +207,6 @@ class AppleRefurbScraper(BaseScraper):
             screen_size=screen,
             chip=chip,
             location="Apple Refurbished",
+            cpu_cores=cpu_cores,
+            gpu_cores=gpu_cores,
         )

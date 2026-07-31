@@ -10,6 +10,8 @@ from typing import Optional
 
 from sqlalchemy import (
     create_engine,
+    inspect,
+    text,
     Column,
     Integer,
     Float,
@@ -91,6 +93,12 @@ class Listing(Base):
     chip = Column(String(50), nullable=True)
     # Chip name parsed from title, e.g. "M5 Max".
 
+    cpu_cores = Column(Integer, nullable=True)
+    # CPU core count parsed from title, e.g. 16.
+
+    gpu_cores = Column(Integer, nullable=True)
+    # GPU core count parsed from title, e.g. 40.
+
     # ── Deal scoring (computed) ───────────────────────────────
     deal_score = Column(Float, nullable=True)
     # A score from 0-100 where higher = better deal.
@@ -125,6 +133,48 @@ class Listing(Base):
         )
 
 
+# ── Daily price-stat table (for trend charts) ─────────────────────
+# One row per (date, group_key) — e.g. ("2026-07-31", "M5 Max").
+# group_key is the chip generation for MacBook Pro searches, or the
+# matched model generation string for iPhone searches. Rows are
+# upserted (overwritten) on every run, so the value for "today"
+# reflects the latest scrape of the day; once the day rolls over,
+# that row is frozen as history for the trend chart.
+class DailyPriceStat(Base):
+    """Daily min/avg/max price per product generation, for trend charts."""
+    __tablename__ = "daily_price_stats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    date = Column(String(10), nullable=False, index=True)
+    # UTC date as "YYYY-MM-DD".
+
+    product_name = Column(String(100), nullable=False)
+    # e.g. "MacBook Pro" or "iPhone Pro Max" — which search this came from.
+
+    group_key = Column(String(50), nullable=False, index=True)
+    # e.g. "M5 Max" or "iPhone 17 Pro Max" — the generation being tracked.
+
+    min_price = Column(Float, nullable=False)
+    avg_price = Column(Float, nullable=False)
+    max_price = Column(Float, nullable=False)
+    listing_count = Column(Integer, nullable=False)
+
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("date", "group_key", name="uq_date_group_key"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<DailyPriceStat(date='{self.date}', group='{self.group_key}', "
+            f"min=${self.min_price:.0f}, avg=${self.avg_price:.0f}, "
+            f"max=${self.max_price:.0f}, n={self.listing_count})>"
+        )
+
+
 # ── Database connection ───────────────────────────────────────────
 # This is how the rest of the code talks to SQLite.
 # Usage:
@@ -155,11 +205,38 @@ def get_engine(database_url: str):
 def create_tables(engine):
     """
     Create all tables that don't exist yet.
-    
+
     This is idempotent — running it multiple times is safe.
     Call this once at startup.
     """
     Base.metadata.create_all(engine)
+
+
+def _ensure_columns(engine):
+    """
+    Add any ORM columns missing from an already-existing "listings"
+    table.
+
+    `create_tables()` only creates tables that don't exist yet — it
+    won't alter a table that's already there, and the committed
+    data/listings.db predates cpu_cores/gpu_cores.  This is a
+    lightweight stand-in for a real migration tool (no Alembic setup
+    exists in this project), safe to call on every startup.
+    """
+    inspector = inspect(engine)
+    if "listings" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("listings")}
+    new_columns = {
+        "cpu_cores": "INTEGER",
+        "gpu_cores": "INTEGER",
+    }
+
+    with engine.begin() as conn:
+        for name, sql_type in new_columns.items():
+            if name not in existing_columns:
+                conn.execute(text(f"ALTER TABLE listings ADD COLUMN {name} {sql_type}"))
 
 
 def get_session(database_url: str) -> Session:
@@ -178,5 +255,6 @@ def get_session(database_url: str) -> Session:
     """
     engine = get_engine(database_url)
     create_tables(engine)
+    _ensure_columns(engine)
     SessionLocal = sessionmaker(bind=engine)
     return SessionLocal()

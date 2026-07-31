@@ -15,7 +15,7 @@
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from config import load_config, Config
@@ -32,6 +32,8 @@ from scrapers.offerup import OfferUpScraper
 
 from price_analyzer import PriceAnalyzer
 from notifier import Notifier
+from stats_tracker import record_daily_stats
+from pages_generator import generate_pages_data
 
 
 # ── Scraper registry ──────────────────────────────────────────────
@@ -109,6 +111,8 @@ def listing_to_db(db, listing: ScrapedListing, config: Config) -> Listing:
         existing.storage_gb = listing.storage_gb
         existing.screen_size = listing.screen_size
         existing.chip = listing.chip
+        existing.cpu_cores = listing.cpu_cores
+        existing.gpu_cores = listing.gpu_cores
         existing.last_seen_at = datetime.now(timezone.utc)
         existing.is_active = True
         db_obj = existing
@@ -125,6 +129,8 @@ def listing_to_db(db, listing: ScrapedListing, config: Config) -> Listing:
             storage_gb=listing.storage_gb,
             screen_size=listing.screen_size,
             chip=listing.chip,
+            cpu_cores=listing.cpu_cores,
+            gpu_cores=listing.gpu_cores,
         )
         db.add(db_obj)
     
@@ -165,6 +171,34 @@ def find_new_listings(db, scraped: list[ScrapedListing]) -> list[Listing]:
     return new_listings
 
 
+def expire_stale_listings(db, hours: int = 72) -> int:
+    """
+    Mark listings inactive if we haven't seen them again in `hours`.
+
+    A listing that hasn't shown up in a scrape for 72+ hours is
+    probably sold or removed, so it's excluded from "current deals"
+    going forward. Rows are kept (not deleted) — daily price-stat
+    history relies on past listings still being in the table.
+
+    Args:
+        db: Database session.
+        hours: How long a listing can go unseen before expiring.
+
+    Returns:
+        The number of listings just marked inactive.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    stale = (
+        db.query(Listing)
+        .filter(Listing.is_active == True, Listing.last_seen_at < cutoff)
+        .all()
+    )
+    for listing in stale:
+        listing.is_active = False
+    db.commit()
+    return len(stale)
+
+
 def run_scrape(config: Config) -> int:
     """
     Run the full scrape cycle.
@@ -188,7 +222,13 @@ def run_scrape(config: Config) -> int:
     # Database
     db = get_session(config.database.url)
     print(f"  [DB] Connected to {config.database.url}")
-    
+
+    # Expire listings we haven't seen in 72+ hours (probably sold/removed).
+    # Rows are kept, just excluded from "current deals" — price history
+    # stays intact for trend charts.
+    expired_count = expire_stale_listings(db, hours=72)
+    print(f"  [DB] Expired {expired_count} listings not seen in 72+ hours")
+
     print()
     
     # ── 2. Run search for each product ─────────────────────────
@@ -239,7 +279,12 @@ def run_scrape(config: Config) -> int:
                 continue
         
         print(f"  Saved/updated {len(db_listings)} listings")
-        
+
+        # ── 2b-2. Record daily price stats (for trend charts) ──
+        stat_rows = record_daily_stats(db, search_config, db_listings)
+        if stat_rows:
+            print(f"  [Stats] Updated {stat_rows} daily price-stat group(s)")
+
         # ── 2c. Analyze prices ─────────────────────────────────
         print("\n📊 Analyzing prices...")
         analyzed = analyzer.analyze(db_listings)
@@ -273,7 +318,12 @@ def run_scrape(config: Config) -> int:
             notifier.send_alert(top_deals, stats)
         else:
             print("  No new listings or great deals — skipping alert.")
-    
+
+    # ── 2f. Export price-trend data for the GitHub Pages site ──
+    print("\n📈 Updating price trend charts...")
+    exported_rows = generate_pages_data(db)
+    print(f"  [Pages] Exported {exported_rows} daily price-stat rows to docs/data/daily_stats.json")
+
     # ── 3. Summary ─────────────────────────────────────────────
     print(f"\n{'='*60}")
     print(f"  ✅ Run complete — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")

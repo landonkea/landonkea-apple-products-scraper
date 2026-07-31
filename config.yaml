@@ -8,31 +8,59 @@
 # values below.  No code changes needed.
 # ───────────────────────────────────────────────────────────────────
 
+# ── PRODUCT GENERATIONS ─────────────────────────────────────────────
+# This is the ONE place you touch when Apple ships something new.
+# Each family below defines "the current generation" and how many
+# generations back to also search.  Searches that reference a family
+# via `generation_family:` automatically get a rolling window —
+# e.g. current_gen: 5, lookback: 3 on mac_chip means "search M5 Max,
+# M4 Max, and M3 Max."  Bump current_gen once a year; nothing else
+# needs to change.
+generations:
+  mac_chip:
+    tier: "Max"          # flagship tier suffix — MacBook Pro's best chip bin
+    current_gen: 5         # bump to 6 when Apple ships M6
+    lookback: 3              # search current_gen, current_gen-1, current_gen-2
+    # Flagship CPU/GPU core counts per generation. Best-effort and
+    # used only to give a small scoring bonus to listings that state
+    # the top-bin core count for their chip — never a hard filter,
+    # since most listings don't mention core counts at all. Update
+    # these once you confirm the real spec-sheet numbers for a new gen.
+    core_counts:
+      5: {cpu: 18, gpu: 40}
+      4: {cpu: 16, gpu: 40}
+      3: {cpu: 16, gpu: 40}
+
+  iphone_pro_max:
+    tier: "Pro Max"
+    current_gen: 17        # bump when Apple ships the next iPhone
+    lookback: 3              # search 17/16/15 Pro Max
+
 # ── WHAT TO SEARCH FOR ─────────────────────────────────────────────
 # List of products to search for.  The scraper runs once per product
 # and alerts you about the best deals on each one.
 # Add a new entry to search for a different product.
 searches:
-  # ── MacBook Pro (14" and 16", M4 Max or M5 Max only) ────────
+  # ── MacBook Pro (14" preferred, 16" fallback; last 3 Max chip
+  # generations via mac_chip above) ────────────────────────────
   - product_name: "MacBook Pro"
-    chip: "M4 Max"
-    chip_fallback: "M5 Max"
-    screen_sizes: [14, 16]
-    ram_gb_primary: ~
-    ram_gb_fallback: ~
-    storage_gb_min: ~
-    storage_gb_max: ~
+    generation_family: mac_chip
+    screen_sizes: [14, 16]   # order = preference: 14" preferred, 16" fallback
+    ram_gb_primary: 128
+    ram_gb_fallback: 64
+    storage_gb_min: 1024    # 1TB minimum; no max — 1/2/4/6/8TB all valid,
+    storage_gb_max: ~        # bigger just scores a little higher (see price_analyzer.py)
     location: ~
     results_per_size: 30
 
-  # ── iPhone 17 Pro Max (1TB) ──────────────────────────────────
-  - product_name: "iPhone 17 Pro Max"
-    chip: ~
-    chip_fallback: ~
+  # ── iPhone Pro Max (1TB+; last 3 generations via iphone_pro_max
+  # above — currently 17/16/15 Pro Max) ─────────────────────────
+  - product_name: "iPhone Pro Max"
+    generation_family: iphone_pro_max
     screen_sizes: []
     ram_gb_primary: ~
     ram_gb_fallback: ~
-    storage_gb_min: 1000  # 1TB minimum
+    storage_gb_min: 1000  # 1TB minimum (also covers 2TB)
     storage_gb_max: ~
     location: ~
     results_per_size: 30
@@ -61,7 +89,7 @@ price:
   # Number of top deals to include in each alert email
   # Increased from 15 to 25 to account for more scraping sources
   # (Best Buy, OfferUp, and future Facebook + Amazon).
-  top_deals_count: 25
+  top_deals_count: 40
 
 # ── WHAT SITES TO SCRAPE ───────────────────────────────────────────
 # Set a site to "enabled: false" to skip it without deleting it.
@@ -81,8 +109,12 @@ sites:
 
   apple_refurb:
     enabled: true
-    # Apple's Certified Refurbished store
-    search_url: "https://www.apple.com/shop/refurbished/mac/2026-macbook-pro"
+    # Apple's Certified Refurbished store. NOTE: this search_url is
+    # not actually used — src/scrapers/apple_refurb.py hits Apple's
+    # evergreen "14-inch-macbook-pro" / "16-inch-macbook-pro" refurb
+    # pages directly (those URLs aren't year- or chip-specific, so
+    # they never need updating). Kept here only for reference.
+    search_url: "https://www.apple.com/shop/refurbished/mac"
 
   backmarket:
     enabled: true

@@ -404,7 +404,8 @@ class OfferUpScraper(BaseScraper):
         storage = self.extract_storage(title)
         screen = self.extract_screen(title)
         chip = self.extract_chip(title)
-        
+        cpu_cores, gpu_cores = self.extract_cores(title)
+
         return ScrapedListing(
             source=self.source_name,
             listing_id=listing_id,
@@ -417,6 +418,8 @@ class OfferUpScraper(BaseScraper):
             screen_size=screen,
             chip=chip,
             location=location,
+            cpu_cores=cpu_cores,
+            gpu_cores=gpu_cores,
         )
     
     def scrape(self) -> list[ScrapedListing]:

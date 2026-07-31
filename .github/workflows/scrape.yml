@@ -20,6 +20,16 @@
 
 name: Mac Deal Scraper
 
+# ── Prevent overlapping runs ───────────────────────────────────────
+# If a scheduled run and a manual (workflow_dispatch) run ever
+# overlap, both try to commit + push data/listings.db at the end,
+# and whichever finishes second gets rejected by git (a race). This
+# forces runs to queue instead of running in parallel, so there's
+# only ever one "git push" happening at a time.
+concurrency:
+  group: mac-deal-scraper
+  cancel-in-progress: false
+
 # ── When to run ──────────────────────────────────────────────────
 on:
   # ── Cron schedule: every 6 hours ─────────────────────────────
@@ -83,20 +93,21 @@ jobs:
           mkdir -p data
           python -m main
       
-      # 6. Commit the database back to the repo
-      #    This preserves seen listings between runs.
-      - name: Commit database updates
+      # 6. Commit the database + chart data back to the repo
+      #    This preserves seen listings and price history between runs,
+      #    and publishes the latest trend data to the GitHub Pages site.
+      - name: Commit database and chart data updates
         run: |
           git config user.name "Mac Deal Scraper Bot"
           git config user.email "bot@landonkea-mac-deal-alert"
-          
-          # Add the database file (if it changed or is new)
-          git add data/listings.db 2>/dev/null || true
-          
+
+          # Add the database file and the GitHub Pages data file
+          git add data/listings.db docs/data/daily_stats.json 2>/dev/null || true
+
           # Only commit if there are changes
           if git diff --cached --quiet; then
-            echo "No database changes to commit."
+            echo "No database or chart-data changes to commit."
           else
-            git commit -m "chore: update listings database [skip ci]"
+            git commit -m "chore: update listings database + price trend data [skip ci]"
             git push
           fi

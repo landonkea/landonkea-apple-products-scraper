@@ -50,6 +50,14 @@ class SearchConfig:
     gpu_cores_min: Optional[int]
     results_per_size: int
     location: Optional[str]
+    # ── Generation-window fields (set when a search opts into a
+    # `generation_family` — see _expand_generation() below).  Left
+    # at their defaults for manually-configured searches, which
+    # keeps old-style single-chip config.yaml entries working as-is.
+    chip_options: list[str] = field(default_factory=list)
+    chip_generation_map: dict[str, int] = field(default_factory=dict)
+    core_count_reference: dict[int, dict] = field(default_factory=dict)
+    model_keywords: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -139,6 +147,64 @@ def _parse_site(raw: dict) -> SiteConfig:
     )
 
 
+# ── Helper: expand a `generation_family` into concrete search criteria ──
+# This is what makes searches.yaml entries future-proof.  Instead of
+# hardcoding "M5 Max" / "iPhone 17 Pro Max" in config.yaml, a search
+# entry can reference a family under `generations:` and get a rolling
+# window of the last N flagship generations — bump one number
+# (`current_gen`) per year, no other edits or code changes needed.
+def _expand_generation(search_dict: dict, generations_raw: dict) -> dict:
+    """
+    If `search_dict` has a `generation_family` key, expand it into
+    chip_options / chip_generation_map / core_count_reference (for
+    chip-based products like MacBook Pro) or model_keywords (for
+    model-number-based products like iPhone).
+
+    Returns a shallow copy of search_dict with the expansion fields
+    merged in.  If no `generation_family` is set, returns search_dict
+    unchanged (manual single-chip config still works as before).
+    """
+    family_name = search_dict.get("generation_family")
+    if not family_name:
+        return search_dict
+
+    family = generations_raw.get(family_name)
+    if not family:
+        raise ValueError(
+            f"searches entry references generation_family "
+            f"'{family_name}' but no such family exists under "
+            f"'generations:' in config.yaml"
+        )
+
+    current_gen = family["current_gen"]
+    lookback = family.get("lookback", 3)
+    tier = family["tier"]
+    generation_numbers = [current_gen - offset for offset in range(lookback)]
+
+    expanded = dict(search_dict)
+
+    if tier in ("Pro", "Max", "Ultra"):
+        # Chip-based family (e.g. Mac "Max" chips) → M5 Max, M4 Max, M3 Max
+        chip_options = [f"M{n} {tier}" for n in generation_numbers]
+        expanded["chip_options"] = chip_options
+        expanded["chip"] = chip_options[0]  # newest, for code that reads .chip directly (e.g. offerup.py)
+        expanded["chip_generation_map"] = {
+            f"M{n} {tier}": n for n in generation_numbers
+        }
+        raw_core_counts = family.get("core_counts", {})
+        expanded["core_count_reference"] = {
+            n: raw_core_counts[n] for n in generation_numbers if n in raw_core_counts
+        }
+    else:
+        # Model-number-based family (e.g. "iPhone N Pro Max")
+        product_prefix = search_dict["product_name"].split(" ")[0]  # e.g. "iPhone"
+        expanded["model_keywords"] = [
+            f"{product_prefix} {n} {tier}" for n in generation_numbers
+        ]
+
+    return expanded
+
+
 def load_config(path: str = "config.yaml") -> Config:
     """
     Read config.yaml and return a typed Config object.
@@ -153,15 +219,17 @@ def load_config(path: str = "config.yaml") -> Config:
         raw = yaml.safe_load(f)
 
     # Grab each section
-    searches_raw = raw["searches"]
-    price_raw  = raw["price"]
-    sites_raw  = raw["sites"]
-    alerts_raw = raw["alerts"]
-    db_raw     = raw["database"]
+    searches_raw    = raw["searches"]
+    price_raw       = raw["price"]
+    sites_raw       = raw["sites"]
+    alerts_raw      = raw["alerts"]
+    db_raw          = raw["database"]
+    generations_raw = raw.get("generations", {})
 
     # Parse each search
     searches = []
     for s in searches_raw:
+        s = _expand_generation(s, generations_raw)
         searches.append(SearchConfig(
             product_name=s["product_name"],
             chip=s.get("chip"),
@@ -175,7 +243,17 @@ def load_config(path: str = "config.yaml") -> Config:
             gpu_cores_min=s.get("gpu_cores_min"),
             results_per_size=s.get("results_per_size", 30),
             location=s.get("location"),
+            chip_options=s.get("chip_options", []),
+            chip_generation_map=s.get("chip_generation_map", {}),
+            core_count_reference=s.get("core_count_reference", {}),
+            model_keywords=s.get("model_keywords", []),
         ))
+        if s.get("generation_family"):
+            family_name = s["generation_family"]
+            if "chip_options" in s:
+                print(f"  [Config] {family_name} generations: {', '.join(s['chip_options'])}")
+            elif "model_keywords" in s:
+                print(f"  [Config] {family_name} generations: {', '.join(s['model_keywords'])}")
 
     # Build typed config
     config = Config(
