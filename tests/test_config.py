@@ -75,6 +75,12 @@ sites:
   offerup:
     enabled: true
     search_url: "https://offerup.com/search/?q={{query}}"
+  newegg:
+    enabled: true
+    search_url: "https://www.newegg.com/p/pl?d={{query}}"
+  gazelle:
+    enabled: true
+    search_url: "https://buy.gazelle.com/search/suggest.json?q={{query}}&resources[type]=product"
   facebook:
     enabled: false
     search_url: ""
