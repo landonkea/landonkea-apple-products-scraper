@@ -397,31 +397,34 @@ class Notifier:
             parts.append(f"{s.storage_gb_min}GB+ storage")
         return " | ".join(parts)
 
-    def _build_discord_embeds(self, top_deals: list[Listing], stats: dict,
-                              title: str, footer_text: str) -> list[dict]:
+    def _build_discord_messages(self, top_deals: list[Listing], stats: dict,
+                                title: str, footer_text: str) -> list[list[dict]]:
         """
-        Build the (possibly paginated) list of Discord embed dicts.
+        Build one or more Discord messages, each a list of embed dicts.
 
-        WHAT: Turns `top_deals` + `stats` into one or more Discord
-        "embed" dicts — the market snapshot field plus one field per
-        deal — ready to drop into a webhook payload.
-        HOW: Discord enforces two independent caps per embed: at most
-        25 fields, AND at most 6000 total characters across the
-        title + every field's name/value + the footer text combined
-        (this second cap is NOT the same as the field-count cap — a
-        page with only 10 long deal titles can still blow past 6000
-        chars while having 15 fields to spare, and a real production
-        run hit exactly this: 39 real deals in one embed exceeded
-        6000 chars and Discord rejected the whole message with a 400).
-        So each new field is added to a running character-length
-        counter, and a new embed page starts whenever either cap
-        would be exceeded — not just when the field count hits 25.
-        Also caps at 10 embeds per message (Discord's message-level
-        limit), so an unusually large top_deals_count still degrades
-        gracefully instead of failing to send at all.
-        WHY: Pulled out of `_send_discord` so the embed-building/
-        pagination logic can be read and reasoned about separately
-        from webhook resolution and the actual HTTP call.
+        WHAT: Turns `top_deals` + `stats` into a list of MESSAGES (each
+        message being a list of embed dicts), ready to send one
+        webhook POST per message.
+        HOW: Discord enforces three separate caps, and getting any one
+        wrong causes the whole send to fail with a 400:
+          1. 25 fields max per embed.
+          2. 10 embeds max per message.
+          3. 6000 characters max — NOT per embed, but summed across
+             every title/field-name/field-value/footer in ALL embeds
+             within one message combined. This is the one that broke
+             production: pagination was originally per-embed only,
+             so two embeds of ~3990 and ~2480 chars each individually
+             looked fine but summed to 6470 — over Discord's combined
+             6000-char message limit — and Discord rejected the whole
+             message with a 400, silently dropping 40 real deals.
+        So each new field is added to a running total that resets
+        only when a new MESSAGE starts (not a new embed) — once
+        adding a field would break any of the three caps, a new embed
+        starts, and if that also means starting past 10 embeds, a new
+        MESSAGE starts instead (its own fresh 6000-char budget).
+        WHY: Pulled out of `_send_discord` so the pagination logic can
+        be read and reasoned about separately from webhook resolution
+        and the actual HTTP call(s).
 
         Args:
             top_deals: The best deals.
@@ -430,14 +433,15 @@ class Notifier:
             footer_text: Embed footer text (already product-aware).
 
         Returns:
-            A list of embed dicts, ready for the `embeds` payload key.
+            A list of messages, each a list of embed dicts — call
+            _post_to_discord once per message.
         """
         MAX_FIELDS_PER_EMBED = 25
-        MAX_EMBEDS = 10
-        # Discord's hard limit is 6000; stay well under it since our
-        # own character count doesn't include Discord's per-field
-        # markdown/formatting overhead exactly, so leave real margin.
-        MAX_CHARS_PER_EMBED = 5500
+        MAX_EMBEDS_PER_MESSAGE = 10
+        # Discord's hard limit is 6000 combined per message; stay well
+        # under it since our count doesn't include Discord's exact
+        # JSON/markdown overhead, so leave real margin.
+        MAX_CHARS_PER_MESSAGE = 5500
 
         best = top_deals[0] if top_deals else None
 
@@ -448,12 +452,6 @@ class Notifier:
                 "fields": [],
                 "footer": {"text": footer_text},
             }
-
-        def embed_char_count(e: dict) -> int:
-            total = len(e["title"]) + len(e["footer"]["text"])
-            for field in e["fields"]:
-                total += len(field["name"]) + len(field["value"])
-            return total
 
         market_snapshot_field = {
             "name": "📊 Market Snapshot",
@@ -466,8 +464,13 @@ class Notifier:
             "inline": False,
         }
 
-        embeds = [new_embed()]
-        embeds[0]["fields"].append(market_snapshot_field)
+        def field_chars(field: dict) -> int:
+            return len(field["name"]) + len(field["value"])
+
+        messages: list[list[dict]] = [[new_embed()]]
+        message_chars = len(title) + len(footer_text)
+        messages[-1][-1]["fields"].append(market_snapshot_field)
+        message_chars += field_chars(market_snapshot_field)
 
         for i, listing in enumerate(top_deals):
             rank = i + 1
@@ -477,21 +480,40 @@ class Notifier:
                 "value": f"[{listing.title[:80]}]({clean_url(listing.url)}) — Score: {listing.deal_score}/100",
                 "inline": False,
             }
-            field_chars = len(field["name"]) + len(field["value"])
+            this_field_chars = field_chars(field)
 
-            current = embeds[-1]
-            over_field_cap = len(current["fields"]) >= MAX_FIELDS_PER_EMBED
-            over_char_cap = embed_char_count(current) + field_chars > MAX_CHARS_PER_EMBED
+            current_message = messages[-1]
+            current_embed = current_message[-1]
 
-            if over_field_cap or over_char_cap:
-                if len(embeds) >= MAX_EMBEDS:
-                    break  # Hit Discord's 10-embed-per-message cap — stop here.
-                embeds.append(new_embed())
-                current = embeds[-1]
+            over_field_cap = len(current_embed["fields"]) >= MAX_FIELDS_PER_EMBED
+            over_char_cap = message_chars + this_field_chars > MAX_CHARS_PER_MESSAGE
 
-            current["fields"].append(field)
+            if over_char_cap:
+                # A new embed doesn't help — the char budget is shared
+                # across the whole message — so start a fresh message
+                # with its own budget.
+                messages.append([new_embed()])
+                message_chars = len(title) + len(footer_text)
+                current_message = messages[-1]
+                current_embed = current_message[-1]
+            elif over_field_cap:
+                if len(current_message) >= MAX_EMBEDS_PER_MESSAGE:
+                    messages.append([new_embed()])
+                    message_chars = len(title) + len(footer_text)
+                    current_message = messages[-1]
+                else:
+                    # A new embed within the SAME message still repeats
+                    # its own title + footer text, and Discord counts
+                    # those again toward the shared 6000-char budget —
+                    # this is exactly what the earlier version missed.
+                    current_message.append(new_embed())
+                    message_chars += len(title) + len(footer_text)
+                current_embed = current_message[-1]
 
-        return embeds
+            current_embed["fields"].append(field)
+            message_chars += this_field_chars
+
+        return messages
 
     def _post_to_discord(self, webhook_url: str, payload: dict):
         """
@@ -576,17 +598,18 @@ class Notifier:
         title = f"🎯 {product} Deal Alert"
         footer_text = self._build_search_summary()
 
-        # ── Build the Discord embed message ─────────────────────
-        embeds = self._build_discord_embeds(top_deals, stats, title, footer_text)
+        # ── Build the Discord embed message(s) ──────────────────
+        # Usually just one message; splits into more only when the
+        # deal count is large enough to exceed Discord's combined
+        # 6000-char-per-message limit (see _build_discord_messages).
+        messages = self._build_discord_messages(top_deals, stats, title, footer_text)
 
-        # Build the payload
-        payload = {
-            "username": "Apple Product Scraper",
-            "embeds": embeds,
-        }
-
-        # Send to Discord
-        self._post_to_discord(webhook_url, payload)
+        for embeds in messages:
+            payload = {
+                "username": "Apple Product Scraper",
+                "embeds": embeds,
+            }
+            self._post_to_discord(webhook_url, payload)
     
     def _store_message_id(self, response: requests.Response):
         """Save the Discord message ID for later cleanup."""
