@@ -210,15 +210,17 @@ ACCESSORY_KEYWORDS = [
     "repair", "replacement", "parts", "for parts", "not working",
     "broken", "damaged", "for repair", "as-is", "as is",
     "screen only", "cracked", "water damage",
+    "defective", "faulty", "does not work", "doesn't work",
 ]
 
 IPHONE_BAD_KEYWORDS = [
     "locked", "icloud", "activation lock",
     "for parts", "not working", "broken", "cracked", "damaged",
-    "water damage", "for repair", "as is", "parts only",
+    "water damage", "for repair", "as is", "as-is", "parts only",
     "repair needed", "stolen", "blacklisted",
     "hardware locked", "sim locked", "carrier locked",
     "network locked", "bad imei",
+    "defective", "faulty", "does not work", "doesn't work",
 ]
 
 # iPhone accessory titles very often literally contain the phone's
@@ -247,34 +249,43 @@ MINIMUM_IPHONE_PRICE_USD = 100
 MINIMUM_PRICE_USD = 200
 
 
-def is_likely_macbook_pro(title: str) -> bool:
+def is_likely_macbook_pro(title: str, condition: Optional[str] = None) -> bool:
     """
     Check if a title is likely a real MacBook Pro (not an accessory).
-    
+
     Filters out items like cases, chargers, keyboards that mention
     "MacBook" but aren't actual computers.
-    
+
     A real MacBook Pro listing has:
       - "MacBook Pro" in the title (not just "MacBook")
       - No accessory keywords (case, charger, cable, etc.)
       - At least one hardware spec: chip (M1-M5), screen size, RAM,
         or storage
-    
+
     Args:
         title: The listing title to check.
-    
+        condition: The marketplace's condition label, if available
+            (e.g. eBay's "Parts Only" badge). Some red-flag signals
+            (like "parts only") show up ONLY here, not in the title
+            text — a listing found live had title "Apple iPhone 15
+            Pro Max - 1 TB - Blue Titanium (Unlocked)" with condition
+            "Parts Only", so title-only keyword checks missed it
+            entirely. Checked alongside the title, not in place of it.
+
     Returns:
         True if this looks like an actual MacBook Pro computer.
     """
     title_lower = title.lower()
-    
+    condition_lower = (condition or "").lower()
+
     # Must be a MacBook Pro (not just MacBook)
     if "macbook pro" not in title_lower:
         return False
-    
-    # Exclude accessories by keyword
+
+    # Exclude accessories/red-flag condition by keyword — checked
+    # against both the title and the marketplace's condition label.
     for kw in ACCESSORY_KEYWORDS:
-        if kw in title_lower:
+        if kw in title_lower or kw in condition_lower:
             return False
     
     # Must have at least one hardware indicator
@@ -289,16 +300,17 @@ def is_likely_macbook_pro(title: str) -> bool:
     return True
 
 
-def is_likely_iphone(title: str) -> bool:
+def is_likely_iphone(title: str, condition: Optional[str] = None) -> bool:
     """
     Check if a title is likely a real iPhone (not an accessory).
 
     WHAT: Filters out cases, screen protectors, chargers, etc. that
     mention a specific iPhone generation but aren't actual phones,
     plus locked/broken/parts-only listings.
-    HOW: Rejects titles containing accessory or bad-condition
-    keywords, then requires at least one storage-capacity mention
-    (e.g. "256GB", "1TB") as the hardware-indicator check — mirrors
+    HOW: Rejects titles (and the marketplace's condition label, if
+    given) containing accessory or bad-condition keywords, then
+    requires at least one storage-capacity mention (e.g. "256GB",
+    "1TB") as the hardware-indicator check — mirrors
     is_likely_macbook_pro()'s "must have at least one real spec"
     requirement.
     WHY: Unlike MacBook listings, iPhone accessory titles routinely
@@ -307,13 +319,23 @@ def is_likely_iphone(title: str) -> bool:
     plain keyword match can't tell an accessory from a real phone.
     Real phone listings almost always state storage; accessories
     almost never do, so that's the more reliable signal here.
+    The `condition` check matters because red-flag signals sometimes
+    show up ONLY in the marketplace's condition badge, not the title
+    — a live eBay result had title "Apple iPhone 15 Pro Max - 1 TB -
+    Blue Titanium (Unlocked)" (nothing suspicious) but condition
+    "Parts Only", which a title-only check would have missed.
+
+    Args:
+        title: The listing title to check.
+        condition: The marketplace's condition label, if available.
     """
     title_lower = title.lower()
+    condition_lower = (condition or "").lower()
     if "iphone" not in title_lower:
         return False
 
     for kw in IPHONE_ACCESSORY_KEYWORDS:
-        if kw in title_lower:
+        if kw in title_lower or kw in condition_lower:
             return False
 
     locked = "locked" in title_lower and "unlocked" not in title_lower
@@ -321,7 +343,7 @@ def is_likely_iphone(title: str) -> bool:
         kw_lower = kw.lower()
         if kw_lower == "locked":
             continue
-        if kw_lower in title_lower:
+        if kw_lower in title_lower or kw_lower in condition_lower:
             return False
     if locked:
         return False
@@ -599,10 +621,10 @@ class BaseScraper(ABC):
         
         # Product-specific validation
         if "macbook" in product_lower:
-            if not is_likely_macbook_pro(listing.title):
+            if not is_likely_macbook_pro(listing.title, listing.condition):
                 return False
         elif "iphone" in product_lower:
-            if not is_likely_iphone(listing.title):
+            if not is_likely_iphone(listing.title, listing.condition):
                 return False
         
         # Check chip (only if a chip filter is configured).
