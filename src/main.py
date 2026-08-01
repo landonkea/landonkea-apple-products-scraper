@@ -16,10 +16,9 @@
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from config import load_config, Config
-from database import get_session, Listing
+from database import get_session, Listing, prune_old_inactive_listings, RETENTION_DAYS
 
 from scrapers.base import ScrapedListing
 from scrapers.ebay import eBayScraper
@@ -167,18 +166,20 @@ def listing_to_db(db, listing: ScrapedListing, config: Config) -> Listing:
     return db_obj
 
 
-def find_new_listings(db, scraped: list[ScrapedListing]) -> list[Listing]:
+def find_new_listings(db, scraped: list[ScrapedListing]) -> list[ScrapedListing]:
     """
     Find listings we haven't seen before.
-    
+
     Used to only alert on NEW deals, not ones we already know about.
-    
+
     Args:
         db: Database session.
         scraped: List of ScrapedListings from the scraper.
-    
+
     Returns:
-        List of Listing ORM objects that are truly new.
+        The subset of `scraped` (still ScrapedListing objects, not
+        yet saved as DB Listing rows) whose source+listing_id doesn't
+        already exist in the database.
     """
     new_listings = []
     
@@ -307,7 +308,7 @@ def _run_one_search(config: Config, search_config, db) -> None:
 
     # ── 2c. Analyze prices ─────────────────────────────────
     print("\n📊 Analyzing prices...")
-    analyzed = analyzer.analyze(db_listings)
+    analyzer.analyze(db_listings)
     stats = analyzer.get_stats()
 
     print(f"  Listings analyzed: {stats['count']}")
@@ -353,7 +354,7 @@ def run_scrape(config: Config) -> int:
         0 on success, 1 on error.
     """
     print(f"\n{'='*60}")
-    print(f"  Apple Product Scraper — Starting Run")
+    print("  Apple Product Scraper — Starting Run")
     print(f"  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
     # Print the active environment prominently — this is the single
     # most important line in the banner for telling a real production
@@ -373,6 +374,13 @@ def run_scrape(config: Config) -> int:
     # stays intact for trend charts.
     expired_count = expire_stale_listings(db, hours=72)
     print(f"  [DB] Expired {expired_count} listings not seen in 72+ hours")
+
+    # Permanently delete listings that have been inactive for a long
+    # time (see prune_old_inactive_listings() in database.py for why
+    # this is safe — the trend charts read from a separate, already-
+    # aggregated table these rows never touch).
+    pruned_count = prune_old_inactive_listings(db)
+    print(f"  [DB] Pruned {pruned_count} listings inactive for {RETENTION_DAYS}+ days")
 
     print()
 

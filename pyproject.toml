@@ -31,7 +31,11 @@ dependencies = [
 
     # ── Database ──────────────────────────────────────────────────
     "sqlalchemy>=2.0",         # Database ORM (lets us use SQLite or Postgres)
-    "alembic>=1.13",           # Database migrations (track schema changes)
+    # NOTE: no Alembic here on purpose. Schema changes (e.g. adding
+    # cpu_cores/gpu_cores) are handled by a small ALTER-TABLE helper
+    # in src/database.py (_ensure_columns) instead — see that
+    # function's docstring for why. Alembic used to be listed as a
+    # dependency despite never being used anywhere in this project.
 
     # ── Configuration ─────────────────────────────────────────────
     "pyyaml>=6.0",             # Reads config.yaml files
@@ -61,3 +65,31 @@ dev = [
     "ruff>=0.3",               # Code linter
     "mypy>=1.8",               # Type checker
 ]
+
+# ── Linter config ────────────────────────────────────────────────
+# WHY THIS IS SCOPED (not ruff's full default rule set): ruff with
+# no config applies a large, opinionated default selection (style
+# preferences like "combine these two if-statements", "don't catch
+# a blind Exception", "use the datetime.UTC alias") that this project
+# has never followed and that mostly aren't real bugs. Selecting just
+# "E" (pycodestyle) and "F" (pyflakes) keeps ruff focused on things
+# that are almost always real problems — unused imports/variables,
+# undefined names, syntax issues — without a wall of stylistic noise
+# on every run. Run `ruff check .` from the repo root.
+[tool.ruff]
+line-length = 120  # This codebase's comments/docstrings run long on purpose
+
+[tool.ruff.lint]
+select = ["E", "F"]
+
+# ── Type checker config ─────────────────────────────────────────────
+# `explicit_package_bases` + `mypy_path` tell mypy where this
+# project's own modules live (src/), so it can actually analyze them
+# instead of reporting every internal import as "missing library
+# stubs" (which is what happens by default, since src/ isn't a
+# normal installed package layout). Run `mypy src/` from the repo
+# root.
+[tool.mypy]
+mypy_path = "src"
+explicit_package_bases = true
+ignore_missing_imports = true  # Third-party libs (bs4, playwright, etc.) don't ship types
