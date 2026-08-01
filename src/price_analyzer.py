@@ -20,6 +20,33 @@ from database import Listing
 from config import Config
 
 
+# ── Suspicious-price safeguard ─────────────────────────────────────
+# A listing priced way below the rest of its batch AND claiming to be
+# new/sealed is more likely mislabeled, a scam, or a typo than a
+# genuine steal -- e.g. a live test found a "New *Sealed* Apple
+# iPhone 17 Pro Max 1TB Silver Unlocked" listed at $238 when a real
+# new sealed 1TB iPhone 17 Pro Max costs $1,400+. Nothing caught that
+# case before; it would have scored as the #1 top deal. We don't want
+# to silently drop it (it might occasionally be real), so instead we
+# flag it: cap its score low and prefix its title so a human glancing
+# at the alert knows to verify carefully before buying.
+#
+# Threshold note: live-tested against real eBay results rather than
+# picked in the abstract. A batch mixing generations/conditions (e.g.
+# older used iPhone 15 Pro Max units alongside a "new" iPhone 17 Pro
+# Max) has a median dragged down by the cheaper used units, so an
+# aggressive "under 20% of median" cutoff (the initial guess) did NOT
+# catch the real $238-in-a-$621-median case -- the next-cheapest
+# genuine listing in that same batch was still ~80% of median, so
+# 50% leaves a wide, safe margin between "real cheap deal" and
+# "implausible for a claimed-new item" without needing a tighter cutoff.
+SUSPICIOUS_PRICE_RATIO = 0.5   # under 50% of the batch median price
+SUSPICIOUS_MIN_SAMPLE = 3      # need at least this many listings for
+                                # "median" to be a meaningful reference
+SUSPICIOUS_CONDITION_KEYWORDS = ["new", "sealed", "brand new", "factory sealed"]
+SUSPICIOUS_TAG = "⚠️ VERIFY PRICE — "
+
+
 class PriceAnalyzer:
     """
     Analyzes listing prices and computes deal scores.
@@ -112,7 +139,32 @@ class PriceAnalyzer:
         }
         
         return self._stats
-    
+
+    def _is_suspiciously_cheap(self, listing: Listing, stats: dict) -> bool:
+        """
+        Flag listings priced implausibly low for their claimed
+        new/sealed condition, relative to the rest of the batch.
+
+        Requires BOTH:
+          - price is under SUSPICIOUS_PRICE_RATIO of the batch median
+            (with at least SUSPICIOUS_MIN_SAMPLE listings, so a tiny
+            batch doesn't produce a meaningless "median")
+          - the title/condition claims new/sealed condition
+
+        A genuinely cheap listing that's simply used, cosmetically
+        damaged, or an older condition grade does NOT get flagged --
+        only the "too good to be true for a claimed-new item"
+        combination does, so real bargains aren't buried.
+        """
+        median = stats.get("median", 0)
+        if median <= 0 or stats.get("count", 0) < SUSPICIOUS_MIN_SAMPLE:
+            return False
+        if listing.price_usd >= median * SUSPICIOUS_PRICE_RATIO:
+            return False
+
+        text = f"{listing.condition or ''} {listing.title or ''}".lower()
+        return any(kw in text for kw in SUSPICIOUS_CONDITION_KEYWORDS)
+
     def _score_listing(self, listing: Listing) -> float:
         """
         Compute a deal score for one listing (0-100).
@@ -218,7 +270,13 @@ class PriceAnalyzer:
 
         # Clamp to 0-100
         score = max(0, min(100, score))
-        
+
+        # Suspicious-price safeguard: an implausibly-low price for a
+        # claimed new/sealed item is far more likely mislabeled/a scam
+        # than a genuine steal -- don't let it rank as a top deal.
+        if self._is_suspiciously_cheap(listing, stats):
+            score = min(score, 10.0)
+
         return round(score, 1)
     
     def analyze(self, listings: Optional[list[Listing]] = None) -> list[Listing]:
@@ -239,13 +297,24 @@ class PriceAnalyzer:
         if listings is not None:
             self.add_listings(listings)
         
+        stats = self._compute_stats()
+
         for listing in self.listings:
             listing.deal_score = self._score_listing(listing)
-            
+
             # Check if it qualifies as a "great deal"
             ram = listing.ram_gb or 64
             threshold = self.config.price.great_deal_usd.get(ram, 5000)
             listing.is_great_deal = listing.price_usd <= threshold
+
+            # Suspicious-price safeguard (see module docstring above):
+            # never present these as a vetted "great deal", and tag
+            # the title so it's visibly flagged in alerts even though
+            # we still surface it rather than silently dropping it.
+            if self._is_suspiciously_cheap(listing, stats):
+                listing.is_great_deal = False
+                if not listing.title.startswith(SUSPICIOUS_TAG):
+                    listing.title = SUSPICIOUS_TAG + listing.title
         
         # Sort by score descending (best deals first)
         self.listings.sort(key=lambda l: l.deal_score or 0, reverse=True)
