@@ -26,9 +26,17 @@ Thumbs.db
 # Database file (created at runtime, kept in git for continuity)
 # Comment these out if you want the DB tracked in git:
 # data/listings.db
-data/listings.db-journal
-data/listings.db-wal
-data/listings.db-shm
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# Local "dev" runs are always ephemeral/local-only (see
+# src/environment.py) — never meant to be committed by a developer.
+# The staging environment's DB (data/listings.staging.db) is the
+# opposite: the scrape-staging.yml workflow explicitly commits it on
+# purpose, the same way production commits data/listings.db, so it's
+# NOT ignored here.
+data/listings.dev.db
 
 # ── Environment variables (local testing) ─────────────────────
 # Create a .env file for local testing with your secrets.
