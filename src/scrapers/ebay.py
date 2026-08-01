@@ -6,9 +6,7 @@
 # easiest site to scrape.
 # ───────────────────────────────────────────────────────────────────
 
-import json
 import re
-import time
 from typing import Optional
 
 from scrapers.base import BaseScraper, ScrapedListing, MINIMUM_IPHONE_PRICE_USD, MINIMUM_PRICE_USD

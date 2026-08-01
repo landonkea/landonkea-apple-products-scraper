@@ -1,0 +1,116 @@
+# ───────────────────────────────────────────────────────────────────
+# GitHub Actions workflow — staging (pre-production verification)
+# ───────────────────────────────────────────────────────────────────
+# WHAT THIS IS: a real staging environment, distinct from both local
+# "dev" runs and the real production workflow (scrape.yml). It runs
+# the exact same code, in the exact same GitHub Actions runtime as
+# production, but:
+#   - posts to a separate, non-production Discord webhook (never the
+#     real channel you actually watch for deals)
+#   - reads/writes its own data/listings.staging.db (never the real
+#     production database)
+#   - only ever commits back to the `staging` branch — it can never
+#     push to `main`, so it can't affect production even by accident
+#
+# WHY THIS EXISTS: local "dev" runs prove your code works on YOUR
+# machine. They don't prove it works in GitHub Actions' actual
+# runtime (different OS, different Python/Playwright install, no
+# access to your local browser cache, etc.) — which is exactly the
+# class of bug that's bitten this project before (e.g. Playwright
+# browser binaries not being installed locally the same way CI
+# installs them). Staging closes that gap: it's the real CI
+# environment, just pointed at throwaway data and a throwaway
+# Discord channel instead of the real ones.
+#
+# THE INTENDED FLOW:
+#   1. Work locally (`ENVIRONMENT=dev`), verify with tests + a local run.
+#   2. Push a feature branch, open a PR into `staging` (not `main`).
+#   3. Merging into `staging` triggers this workflow — a real GitHub
+#      Actions run, safely isolated from production.
+#   4. Once staging looks right, open a second PR from `staging` into
+#      `main` — merging THAT triggers scrape.yml for real.
+#
+# SETUP: same secrets as scrape.yml, plus one more:
+#   - DISCORD_WEBHOOK_URL_DEV: a webhook for a throwaway/testing
+#     Discord channel (NOT your real deals channel). Used for both
+#     local dev runs and this staging workflow — see
+#     src/notifier.py's environment-gating logic.
+# ───────────────────────────────────────────────────────────────────
+
+name: Apple Product Scraper (staging)
+
+concurrency:
+  group: apple-product-scraper-staging
+  cancel-in-progress: false
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install -e ".[dev]"
+          pip install playwright-stealth
+
+      - name: Install Playwright browsers
+        run: |
+          playwright install --with-deps chromium
+
+      - name: Run scraper
+        env:
+          # The only line that differs functionally from scrape.yml's
+          # "Run scraper" step — everything else about this workflow
+          # is deliberately identical to production, since the whole
+          # point of staging is testing the REAL CI path.
+          ENVIRONMENT: staging
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DISCORD_WEBHOOK_URL_DEV: ${{ secrets.DISCORD_WEBHOOK_URL_DEV }}
+        run: |
+          mkdir -p data
+          python -m main
+
+      # Commit ONLY the staging database — deliberately NOT
+      # docs/data/daily_stats.json. That file is generated from
+      # whichever database is active (here, the staging one), and if
+      # it were committed here and this branch later merged into
+      # main, it would silently overwrite the real production trend
+      # chart with throwaway staging data. Leaving it uncommitted
+      # means it's regenerated locally during this run, never
+      # persisted, and gone when the runner is destroyed.
+      - name: Commit staging database updates
+        run: |
+          git config user.name "Apple Product Scraper Bot (staging)"
+          git config user.email "bot@landonkea-apple-products-scraper"
+
+          git add data/listings.staging.db 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No staging database changes to commit."
+          else
+            git commit -m "chore: update staging database [skip ci]"
+            git push
+          fi
