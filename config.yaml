@@ -40,10 +40,29 @@ generations:
 # List of products to search for.  The scraper runs once per product
 # and alerts you about the best deals on each one.
 # Add a new entry to search for a different product.
+# ── PRODUCT TYPES ────────────────────────────────────────────────────
+# `product_type` on a search entry below picks which handler (in
+# src/product_types/) owns matching/scoring for that search. Defaults
+# to "electronics" if omitted — that's the only type that exists
+# today (MacBook Pro / iPhone). To search a whole new category later
+# (the user's own example: dress boots), see src/product_types/base.py
+# for exactly what a new type needs to implement, then add a new
+# `searches:` entry here with `product_type: <your new type name>`.
+# The general marketplaces below (eBay, Swappa, Mercari, OfferUp,
+# BackMarket) will search that new category for free, since they
+# build queries from product_name alone — no per-site config needed.
+# Apple-only storefronts (Apple Refurb, BestBuy, Newegg, Gazelle) are
+# marked `applicable_product_types: [electronics]` below so they're
+# automatically skipped for a non-electronics search instead of
+# wasting a request. A brand-new category's OWN dedicated retailers
+# (e.g. Zappos for boots) still need their own scraper written from
+# scratch, the same way src/scrapers/backmarket.py was.
+
 searches:
   # ── MacBook Pro (14" preferred, 16" fallback; last 3 Max chip
   # generations via mac_chip above) ────────────────────────────
   - product_name: "MacBook Pro"
+    product_type: electronics
     generation_family: mac_chip
     screen_sizes: [14, 16]   # order = preference: 14" preferred, 16" fallback
     ram_gb_primary: 128
@@ -56,6 +75,7 @@ searches:
   # ── iPhone Pro Max (1TB+; last 3 generations via iphone_pro_max
   # above — currently 17/16/15 Pro Max) ─────────────────────────
   - product_name: "iPhone Pro Max"
+    product_type: electronics
     generation_family: iphone_pro_max
     screen_sizes: []
     ram_gb_primary: ~
@@ -109,11 +129,13 @@ sites:
 
   apple_refurb:
     enabled: true
-    # Apple's Certified Refurbished store. NOTE: this search_url is
-    # not actually used — src/scrapers/apple_refurb.py hits Apple's
-    # evergreen "14-inch-macbook-pro" / "16-inch-macbook-pro" refurb
-    # pages directly (those URLs aren't year- or chip-specific, so
-    # they never need updating). Kept here only for reference.
+    # Apple's own store only ever sells Apple electronics.
+    applicable_product_types: [electronics]
+    # NOTE: this search_url is not actually used — src/scrapers/
+    # apple_refurb.py hits Apple's evergreen "14-inch-macbook-pro" /
+    # "16-inch-macbook-pro" refurb pages directly (those URLs aren't
+    # year- or chip-specific, so they never need updating). Kept here
+    # only for reference.
     search_url: "https://www.apple.com/shop/refurbished/mac"
 
   backmarket:
@@ -126,6 +148,9 @@ sites:
 
   bestbuy:
     enabled: true
+    # General electronics retailer, but its scraper/query only ever
+    # targets Apple gear today.
+    applicable_product_types: [electronics]
     # Best Buy Open Box — returned/inspected items at a discount.
     # The scraper uses the "af=condition%3Aopen+box" URL filter
     # and also validates condition text in each listing card.
@@ -140,6 +165,9 @@ sites:
 
   newegg:
     enabled: true
+    # Electronics retailer — never carries apparel or other
+    # non-electronics categories.
+    applicable_product_types: [electronics]
     # Newegg's third-party marketplace carries Refurbished/Used Apple
     # gear. No login required. The scraper uses a bare product-name
     # query (`d={{query}}`) with Newegg's default relevance sort —
@@ -150,6 +178,9 @@ sites:
 
   gazelle:
     enabled: true
+    # Used-electronics reseller only — phones/tablets/laptops, no
+    # apparel or other categories.
+    applicable_product_types: [electronics]
     # Gazelle's actual storefront lives on buy.gazelle.com (a Shopify
     # store) — www.gazelle.com 404s on collection/product/search
     # routes. The scraper hits buy.gazelle.com's public Shopify JSON
