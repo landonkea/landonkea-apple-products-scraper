@@ -37,6 +37,7 @@ def make_scraper(product_name="MacBook Pro", chip_options=None, model_keywords=N
         product_name=product_name,
         chip_options=chip_options or [],
         model_keywords=model_keywords or [],
+        product_type="electronics",
     )
     fake_config = SimpleNamespace(search=fake_search)
     return GazelleScraper(fake_config)

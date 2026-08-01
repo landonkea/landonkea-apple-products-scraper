@@ -50,7 +50,7 @@ def _load_env_secrets() -> dict:
 
 @dataclass
 class SearchConfig:
-    """What hardware we're looking for."""
+    """What we're looking for."""
     product_name: str
     chip: Optional[str]
     chip_fallback: Optional[str]
@@ -61,6 +61,13 @@ class SearchConfig:
     storage_gb_max: Optional[int]
     results_per_size: int
     location: Optional[str]
+    # ── Product type (see src/product_types/) ──────────────────
+    # Which ProductTypeHandler owns matching/scoring for this search.
+    # Defaults to "electronics" (MacBook Pro / iPhone — the only type
+    # that exists today), so existing config.yaml entries need no
+    # changes to keep working exactly as before. A future category
+    # (e.g. "apparel") sets this to its own registered type name.
+    product_type: str = "electronics"
     # ── Generation-window fields (set when a search opts into a
     # `generation_family` — see _expand_generation() below).  Left
     # at their defaults for manually-configured searches, which
@@ -86,6 +93,15 @@ class SiteConfig:
     enabled: bool
     search_url: str = ""
     base_url: str = ""
+    # Which product_type values this site can ever return results for.
+    # None (the default) means "applies to every product type" — the
+    # right default for general marketplaces (eBay, Swappa, Mercari,
+    # OfferUp, BackMarket) that build queries from product_name alone.
+    # Storefronts that only ever carry electronics (Apple Refurb,
+    # BestBuy, Newegg, Gazelle) set this explicitly in config.yaml so
+    # a future non-electronics search skips them instead of wasting a
+    # request and returning zero every time.
+    applicable_product_types: Optional[list[str]] = None
 
 
 @dataclass
@@ -232,6 +248,7 @@ def _parse_site(raw: dict) -> SiteConfig:
         enabled=raw.get("enabled", False),
         search_url=raw.get("search_url", ""),
         base_url=raw.get("base_url", ""),
+        applicable_product_types=raw.get("applicable_product_types"),
     )
 
 
@@ -333,6 +350,7 @@ def load_config(path: str = "config.yaml") -> Config:
             storage_gb_max=s.get("storage_gb_max"),
             results_per_size=s.get("results_per_size", 30),
             location=s.get("location"),
+            product_type=s.get("product_type", "electronics"),
             chip_options=s.get("chip_options", []),
             chip_generation_map=s.get("chip_generation_map", {}),
             core_count_reference=s.get("core_count_reference", {}),
