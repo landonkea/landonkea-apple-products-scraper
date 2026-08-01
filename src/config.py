@@ -34,6 +34,12 @@ def _load_env_secrets() -> dict:
         # production channel. See notifier.py's _send_discord() for
         # how this is used alongside is_production().
         "discord_webhook_url_dev": os.environ.get("DISCORD_WEBHOOK_URL_DEV"),
+        # Facebook Marketplace requires a logged-in session to search at
+        # all (unlike ebay/swappa/etc. which are public). There's no
+        # username/password login flow implemented here — instead, the
+        # site config expects a copied-out browser session cookie value.
+        # See scrapers/facebook.py and docs/marketplace-setup.md.
+        "facebook_session_cookie": os.environ.get("FACEBOOK_SESSION_COOKIE"),
     }
 
 
