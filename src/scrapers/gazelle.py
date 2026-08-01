@@ -64,8 +64,10 @@
 #      actually be bought.
 # ───────────────────────────────────────────────────────────────────
 
+import json
 import re
 from typing import Optional
+from urllib.parse import quote
 
 from scrapers.base import BaseScraper, ScrapedListing
 from config import Config
@@ -124,6 +126,37 @@ class GazelleScraper(BaseScraper):
         """
         return [_slugify(kw) for kw in self.config.search.model_keywords]
 
+    def _fetch_json(self, url: str, error_context: str) -> Optional[dict]:
+        """
+        Fetch a URL and parse its response body as JSON.
+
+        HOW: Thin wrapper around fetch_page() + json.loads(), with a
+        single try/except that logs and swallows any fetch or parse
+        failure rather than raising.
+
+        WHY SHARED: Both Gazelle data paths (per-collection and
+        site-search) hit different Shopify JSON endpoints but need
+        identical fetch+parse+error-handling behavior — centralizing
+        it here avoids duplicating the same try/except twice, and
+        keeps "how do we talk to buy.gazelle.com" separate from "what
+        do we do with the response" (handled by the two _flatten_*
+        methods below).
+
+        Args:
+            url: The full URL to fetch.
+            error_context: Short description used in the log line if
+                the fetch/parse fails (e.g. "collection iphone-17-pro-max").
+
+        Returns:
+            The parsed JSON as a dict, or None on any failure.
+        """
+        try:
+            raw = self.fetch_page(url)
+            return json.loads(raw)
+        except Exception as e:
+            print(f"  [Gazelle] Error fetching {error_context}: {e}")
+            return None
+
     def _fetch_collection_products(self, handle: str) -> list[dict]:
         """
         Fetch every product in one Gazelle collection and flatten its
@@ -139,49 +172,101 @@ class GazelleScraper(BaseScraper):
         Returns a list of raw dicts with keys: title, price, url,
         condition, listing_id, location, ram_gb, storage_gb, chip.
         Only variants with available == True are included, since
-        sold-out variants can't actually be purchased.
+        sold-out variants can't actually be purchased (see
+        _variant_to_listing_dict()).
         """
         url = f"{self.BASE_URL}/collections/{handle}/products.json?limit=250"
-        try:
-            import json
-            raw = self.fetch_page(url)
-            data = json.loads(raw)
-        except Exception as e:
-            print(f"  [Gazelle] Error fetching collection {handle}: {e}")
+        data = self._fetch_json(url, f"collection {handle}")
+        if data is None:
             return []
+        return self._flatten_collection_products(data)
 
+    def _flatten_collection_products(self, data: dict) -> list[dict]:
+        """
+        Turn a Shopify collection products.json payload into a flat
+        list of raw listing dicts, one per available variant.
+
+        HOW: Every Shopify "product" (e.g. "iPhone 17 Pro Max 256GB
+        (Unlocked)") nests a `variants` array — one per color x
+        condition combo. This walks products then variants and hands
+        each variant to _variant_to_listing_dict() to build (or skip)
+        a listing dict.
+
+        WHY A SEPARATE STEP: Keeps "how do we iterate the Shopify
+        response shape" separate from "how do we convert one variant
+        into our raw-listing dict format" (the latter is independently
+        testable without any JSON payload scaffolding).
+
+        Args:
+            data: Parsed JSON from a /collections/{handle}/products.json
+                response.
+
+        Returns:
+            A list of raw listing dicts (see _fetch_collection_products).
+        """
         listings: list[dict] = []
         for product in data.get("products", []):
             product_title = product.get("title", "")
             handle_path = product.get("handle", "")
             for variant in product.get("variants", []):
-                if not variant.get("available"):
-                    continue
-                price = variant.get("price")
-                if price is None:
-                    continue
-                # option1 = color, option2 = condition (Fair/Good/Excellent)
-                # on every Gazelle product checked — but fall back to
-                # the variant's own title if that ever changes shape.
-                condition = variant.get("option2") or variant.get("title")
-                color = variant.get("option1")
-                title_parts = [product_title]
-                if color:
-                    title_parts.append(color)
-                if condition:
-                    title_parts.append(condition)
-                full_title = " - ".join(title_parts)
-
-                variant_id = variant.get("id")
-                listings.append({
-                    "title": full_title,
-                    "price": price,
-                    "url": f"{self.BASE_URL}/products/{handle_path}?variant={variant_id}",
-                    "condition": condition,
-                    "listing_id": f"gazelle-{variant_id}",
-                    "location": None,
-                })
+                listing = self._variant_to_listing_dict(
+                    product_title, handle_path, variant
+                )
+                if listing:
+                    listings.append(listing)
         return listings
+
+    def _variant_to_listing_dict(
+        self, product_title: str, handle_path: str, variant: dict
+    ) -> Optional[dict]:
+        """
+        Convert one Shopify product variant into a raw listing dict.
+
+        WHAT: Builds a title combining the product name, color, and
+        condition (e.g. "iPhone 17 Pro Max 256GB (Unlocked) - Black -
+        Excellent"), and a direct product URL pinned to this variant.
+
+        HOW: option1 = color, option2 = condition (Fair/Good/Excellent)
+        on every Gazelle product checked — but falls back to the
+        variant's own title if that ever changes shape.
+
+        WHY SKIP SOME VARIANTS: Returns None for unavailable or
+        priceless variants — sold-out variants can't actually be
+        purchased, so including them would surface deals a buyer
+        can't act on.
+
+        Args:
+            product_title: The parent product's title.
+            handle_path: The parent product's Shopify handle (for the URL).
+            variant: One entry from the product's `variants` array.
+
+        Returns:
+            A raw listing dict, or None if this variant should be skipped.
+        """
+        if not variant.get("available"):
+            return None
+        price = variant.get("price")
+        if price is None:
+            return None
+
+        condition = variant.get("option2") or variant.get("title")
+        color = variant.get("option1")
+        title_parts = [product_title]
+        if color:
+            title_parts.append(color)
+        if condition:
+            title_parts.append(condition)
+        full_title = " - ".join(title_parts)
+
+        variant_id = variant.get("id")
+        return {
+            "title": full_title,
+            "price": price,
+            "url": f"{self.BASE_URL}/products/{handle_path}?variant={variant_id}",
+            "condition": condition,
+            "listing_id": f"gazelle-{variant_id}",
+            "location": None,
+        }
 
     # ── Site-search fallback path (products with no known handle) ──
     def _fetch_search_products(self, query: str) -> list[dict]:
@@ -203,40 +288,73 @@ class GazelleScraper(BaseScraper):
         results for MacBook Pro; there's no real per-condition data
         to lose.
         """
-        import json
-        from urllib.parse import quote
-
         url = (
             f"{self.BASE_URL}/search/suggest.json?q={quote(query)}"
             f"&resources[type]=product&resources[limit]=50"
         )
-        try:
-            raw = self.fetch_page(url)
-            data = json.loads(raw)
-        except Exception as e:
-            print(f"  [Gazelle] Error searching '{query}': {e}")
+        data = self._fetch_json(url, f"search '{query}'")
+        if data is None:
             return []
+        return self._flatten_search_products(data)
 
+    def _flatten_search_products(self, data: dict) -> list[dict]:
+        """
+        Turn a Shopify predictive-search JSON payload into a flat list
+        of raw listing dicts, one per available product.
+
+        HOW: Walks resources.results.products and hands each product
+        to _search_product_to_listing_dict() to build (or skip) a
+        listing dict.
+
+        WHY A SEPARATE STEP: Mirrors _flatten_collection_products()'s
+        split — isolates "how do we walk this JSON shape" from "how
+        do we convert one product into our raw-listing dict format".
+
+        Args:
+            data: Parsed JSON from a /search/suggest.json response.
+
+        Returns:
+            A list of raw listing dicts (see _fetch_search_products).
+        """
         listings: list[dict] = []
         products = data.get("resources", {}).get("results", {}).get("products", [])
         for product in products:
-            if not product.get("available"):
-                continue
-            price = product.get("price_min") or product.get("price")
-            if price is None:
-                continue
-            product_url = product.get("url", "")
-            if product_url and not product_url.startswith("http"):
-                product_url = f"{self.BASE_URL}{product_url}"
-            listings.append({
-                "title": product.get("title", ""),
-                "price": price,
-                "url": product_url,
-                "condition": None,
-                "listing_id": f"gazelle-{product.get('id')}",
-                "location": None,
-            })
+            listing = self._search_product_to_listing_dict(product)
+            if listing:
+                listings.append(listing)
         return listings
+
+    def _search_product_to_listing_dict(self, product: dict) -> Optional[dict]:
+        """
+        Convert one predictive-search product into a raw listing dict.
+
+        WHY SKIP SOME PRODUCTS: Returns None for unavailable or
+        priceless products, same reasoning as
+        _variant_to_listing_dict() — an unavailable product can't
+        actually be bought.
+
+        Args:
+            product: One entry from resources.results.products.
+
+        Returns:
+            A raw listing dict, or None if this product should be skipped.
+        """
+        if not product.get("available"):
+            return None
+        price = product.get("price_min") or product.get("price")
+        if price is None:
+            return None
+        product_url = product.get("url", "")
+        if product_url and not product_url.startswith("http"):
+            product_url = f"{self.BASE_URL}{product_url}"
+        return {
+            "title": product.get("title", ""),
+            "price": price,
+            "url": product_url,
+            "condition": None,
+            "listing_id": f"gazelle-{product.get('id')}",
+            "location": None,
+        }
 
     def _parse_item(self, item: dict) -> Optional[ScrapedListing]:
         """
@@ -271,40 +389,66 @@ class GazelleScraper(BaseScraper):
             gpu_cores=specs["gpu_cores"],
         )
 
-    def scrape(self) -> list[ScrapedListing]:
+    def _fallback_search_queries(self) -> list[str]:
         """
-        Main entry point: fetch and parse all Gazelle listings for the
-        active search.
+        Build the site-search queries to run when this product has no
+        known collection-handle scheme (e.g. MacBook Pro).
 
+        WHY: One query per tracked chip generation if chip_options is
+        configured (e.g. ["MacBook Pro M5 Max", "MacBook Pro M4 Max",
+        ...]), otherwise a single bare product-name query. Splitting
+        this out keeps scrape()'s branching (collection path vs.
+        fallback path) readable at a glance.
+
+        Returns:
+            A list of query strings to pass to _fetch_search_products().
+        """
+        product = self.config.search.product_name
+        if self.config.search.chip_options:
+            return [f"{product} {opt}" for opt in self.config.search.chip_options]
+        return [product]
+
+    def _fetch_raw_listings(self) -> list[dict]:
+        """
+        Fetch raw listing dicts for the active search, choosing the
+        collection path or the site-search fallback path.
+
+        HOW:
         1. If the search has model_keywords (e.g. iPhone Pro Max),
            fetch the matching per-generation collections.
         2. Otherwise, fall back to a site-wide search per chip option
            (or the bare product name if there are no chip options).
-        3. Convert to ScrapedListing objects and apply passes_filters().
-        4. Deduplicate by listing_id.
+
+        WHY A SEPARATE STEP: Isolates "which data source(s) do we
+        need for this search" from scrape()'s parse/filter/dedup loop,
+        matching the shape of the other scrapers' scrape() methods.
+
+        Returns:
+            A list of raw listing dicts, not yet parsed or filtered.
         """
-        found: list[ScrapedListing] = []
-        found_ids: set = set()
-
         raw_listings: list[dict] = []
-
         handles = self._collection_handles()
         if handles:
             for handle in handles:
                 raw_listings.extend(self._fetch_collection_products(handle))
         else:
-            # No known collection-handle scheme for this product
-            # (e.g. MacBook Pro) — fall back to site-wide search,
-            # one query per tracked chip generation if configured,
-            # otherwise a single bare product-name query.
-            product = self.config.search.product_name
-            queries = (
-                [f"{product} {opt}" for opt in self.config.search.chip_options]
-                if self.config.search.chip_options
-                else [product]
-            )
-            for query in queries:
+            for query in self._fallback_search_queries():
                 raw_listings.extend(self._fetch_search_products(query))
+        return raw_listings
+
+    def scrape(self) -> list[ScrapedListing]:
+        """
+        Main entry point: fetch and parse all Gazelle listings for the
+        active search.
+
+        1. Fetch raw listing dicts (collection path or search fallback).
+        2. Convert to ScrapedListing objects and apply passes_filters().
+        3. Deduplicate by listing_id.
+        """
+        found: list[ScrapedListing] = []
+        found_ids: set = set()
+
+        raw_listings = self._fetch_raw_listings()
 
         for item in raw_listings:
             try:
