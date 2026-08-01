@@ -62,29 +62,42 @@ SCRAPER_CLASSES = {
 
 def get_enabled_scrapers(config: Config) -> list:
     """
-    Get the scraper instances for all enabled sites.
-    
-    Checks config.sites.<site>.enabled for each marketplace.
-    
+    Get the scraper instances for all enabled sites applicable to the
+    active search's product type.
+
+    Checks config.sites.<site>.enabled for each marketplace, and
+    skips a site if its applicable_product_types is set and doesn't
+    include the active search's product_type (see SiteConfig in
+    config.py — this is how an Apple-only storefront like Apple
+    Refurb automatically sits out a future non-electronics search
+    instead of wasting a request and returning zero every time).
+
     Args:
-        config: The global Config object.
-    
+        config: The global Config object. config.search must already
+            be set to the active SearchConfig.
+
     Returns:
-        A list of scraper instances, one per enabled site.
+        A list of scraper instances, one per applicable enabled site.
     """
     scrapers = []
-    
+    product_type = config.search.product_type
+
     for source_name, scraper_class in SCRAPER_CLASSES.items():
         # Get the site config (e.g., config.sites.ebay)
         site_config = getattr(config.sites, source_name, None)
-        
-        if site_config and site_config.enabled:
-            scrapers.append(scraper_class(config))
-            print(f"  [Setup] Enabled scraper: {source_name}")
-    
+        if not (site_config and site_config.enabled):
+            continue
+
+        applicable = site_config.applicable_product_types
+        if applicable is not None and product_type not in applicable:
+            continue
+
+        scrapers.append(scraper_class(config))
+        print(f"  [Setup] Enabled scraper: {source_name}")
+
     if not scrapers:
         print("  ⚠️  No scrapers enabled. Check config.yaml.")
-    
+
     return scrapers
 
 

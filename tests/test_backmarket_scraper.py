@@ -34,7 +34,7 @@ def make_scraper(product_name="MacBook Pro"):
     self.config.search.product_name — a full real Config object
     would need the entire dataclass tree built out for no benefit.
     """
-    fake_search = SimpleNamespace(product_name=product_name)
+    fake_search = SimpleNamespace(product_name=product_name, product_type="electronics")
     fake_config = SimpleNamespace(search=fake_search)
     return BackMarketScraper(fake_config)
 
