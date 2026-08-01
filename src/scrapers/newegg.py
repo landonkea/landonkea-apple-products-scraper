@@ -238,6 +238,76 @@ class NeweggScraper(BaseScraper):
             gpu_cores=specs["gpu_cores"],
         )
 
+    def _fetch_page_cards(self, page: int) -> list:
+        """
+        Fetch one Newegg search results page and return its listing
+        cards (`.item-cell` elements).
+
+        HOW: Builds the page URL, fetches it, and parses out every
+        `.item-cell`. Both failure modes below intentionally return an
+        empty list rather than raising, so the caller can treat "fetch
+        failed" and "no more results" the same way (stop paginating) —
+        that matches the original combined behavior of this scraper.
+
+        WHY: Isolates the network+select step from the "loop over
+        pages and collect listings" logic in scrape(), mirroring the
+        per-slug/per-collection fetch split used in swappa.py /
+        gazelle.py.
+
+        Args:
+            page: 1-indexed page number.
+
+        Returns:
+            A list of BeautifulSoup `.item-cell` elements. Empty if
+            the fetch failed or the page has no more results.
+        """
+        url = self._build_search_url(page)
+        try:
+            html = self.fetch_page(url)
+        except Exception as e:
+            print(f"  [Newegg] Failed to fetch page {page}: {e}")
+            return []
+
+        soup = self.parse_html(html)
+        # No more results (or blocked) if this comes back empty —
+        # scrape() stops paginating either way.
+        return soup.select(".item-cell")
+
+    def _collect_from_cards(
+        self,
+        cards: list,
+        found: list[ScrapedListing],
+        found_ids: set,
+        max_results: int,
+    ) -> None:
+        """
+        Parse a page's listing cards into ScrapedListings, filter, and
+        dedup them into `found`/`found_ids` in place.
+
+        WHY IN-PLACE: scrape() needs to track total found-count and
+        seen-ids across every page's cards, not just one page's — a
+        shared mutable found/found_ids avoids re-threading that state
+        through a return value on every call.
+
+        Args:
+            cards: BeautifulSoup `.item-cell` elements from one page.
+            found: Accumulator list of accepted ScrapedListings so far.
+            found_ids: Accumulator set of listing_ids already accepted.
+            max_results: Stop once `found` reaches this length.
+        """
+        for item in cards:
+            if len(found) >= max_results:
+                break
+            try:
+                listing = self._parse_single_item(item)
+                if listing and listing.listing_id not in found_ids:
+                    if self.passes_filters(listing):
+                        found.append(listing)
+                        found_ids.add(listing.listing_id)
+            except Exception:
+                # Skip individual parse errors.
+                continue
+
     def scrape(self) -> list[ScrapedListing]:
         """
         Main entry point: fetch and parse Newegg listings for the
@@ -267,31 +337,11 @@ class NeweggScraper(BaseScraper):
             if len(found) >= max_results:
                 break
 
-            url = self._build_search_url(page)
-            try:
-                html = self.fetch_page(url)
-            except Exception as e:
-                print(f"  [Newegg] Failed to fetch page {page}: {e}")
+            cards = self._fetch_page_cards(page)
+            if not cards:
                 break
 
-            soup = self.parse_html(html)
-            items = soup.select(".item-cell")
-            if not items:
-                # No more results (or blocked) — stop paginating.
-                break
-
-            for item in items:
-                if len(found) >= max_results:
-                    break
-                try:
-                    listing = self._parse_single_item(item)
-                    if listing and listing.listing_id not in found_ids:
-                        if self.passes_filters(listing):
-                            found.append(listing)
-                            found_ids.add(listing.listing_id)
-                except Exception:
-                    # Skip individual parse errors.
-                    continue
+            self._collect_from_cards(cards, found, found_ids, max_results)
 
         print(f"  [Newegg] Found {len(found)} matching listings")
         return found
