@@ -34,7 +34,7 @@ def make_scraper(product_name="MacBook Pro"):
     URL) — a SimpleNamespace with just that field avoids building out
     a full Config dataclass tree for no benefit.
     """
-    fake_search = SimpleNamespace(product_name=product_name, results_per_size=30)
+    fake_search = SimpleNamespace(product_name=product_name, results_per_size=30, product_type="electronics")
     fake_config = SimpleNamespace(search=fake_search)
     return NeweggScraper(fake_config)
 
