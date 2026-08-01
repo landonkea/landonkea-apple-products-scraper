@@ -20,8 +20,7 @@ import tempfile
 # This is needed because the tests live in tests/ and our code is in src/.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import yaml
-from config import load_config, SearchConfig, PriceConfig, _environment_scoped_db_url
+from config import load_config, _environment_scoped_db_url
 
 
 # Sample YAML config that mimics the real config.yaml structure.

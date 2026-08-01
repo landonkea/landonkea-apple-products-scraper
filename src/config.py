@@ -239,6 +239,15 @@ class Config:
     # callers that construct Config directly, or call load_config()
     # without touching this field, keep working unchanged.
     environment: str = field(default_factory=get_environment)
+    # The SearchConfig currently being processed. main.py's per-search
+    # loop sets this (`config.search = search_config`) before running
+    # any scraper — every scraper and BaseScraper.passes_filters()/
+    # parse_common_specs() reads config.search rather than taking a
+    # SearchConfig parameter directly. Declared here (defaulting to
+    # None) purely so that runtime contract is visible in the type
+    # system instead of being an undeclared attribute nothing outside
+    # main.py's loop could see was expected to exist.
+    search: Optional["SearchConfig"] = None
 
 
 # ── Helper: build a SiteConfig from raw YAML ──────────────────────

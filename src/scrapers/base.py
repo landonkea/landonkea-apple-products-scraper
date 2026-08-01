@@ -19,7 +19,6 @@ import requests
 from bs4 import BeautifulSoup
 
 from config import Config
-from database import Listing
 from product_types import PRODUCT_TYPES
 
 # Re-exported for backward compatibility — this logic moved to
@@ -184,7 +183,7 @@ class BaseScraper(ABC):
         Raises:
             requests.RequestException if the fetch fails after all retries.
         """
-        last_exception = None
+        last_exception: Optional[Exception] = None
         
         for attempt in range(max_retries):
             # Rotate user agent on each attempt
