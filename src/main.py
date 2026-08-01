@@ -31,6 +31,7 @@ from scrapers.bestbuy import BestBuyScraper
 from scrapers.offerup import OfferUpScraper
 from scrapers.newegg import NeweggScraper
 from scrapers.gazelle import GazelleScraper
+from scrapers.facebook import FacebookMarketplaceScraper
 
 from price_analyzer import PriceAnalyzer
 from notifier import Notifier
@@ -51,6 +52,11 @@ SCRAPER_CLASSES = {
     "offerup": OfferUpScraper,
     "newegg": NeweggScraper,
     "gazelle": GazelleScraper,
+    # STUB — requires FACEBOOK_SESSION_COOKIE to do anything; stays
+    # inert (returns no listings) until that's set. See
+    # scrapers/facebook.py and docs/marketplace-setup.md. Also
+    # `enabled: false` in config.yaml, so it won't even run by default.
+    "facebook": FacebookMarketplaceScraper,
 }
 
 
