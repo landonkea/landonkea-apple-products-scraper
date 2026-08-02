@@ -11,8 +11,9 @@ is not the same as "currently live."
 feasibility" notes below are best-guess inferences (public search page vs.
 JS-heavy app vs. known bot defenses), not verified results. Actually confirming
 feasibility requires live-testing against the real site, the same way this
-project's 9 existing scrapers (eBay, Swappa, Mercari, OfferUp, BackMarket,
-Apple Refurb, Best Buy, Newegg, Gazelle) were actually built and verified.
+project's 10 existing scrapers (eBay, Swappa, Mercari, OfferUp, BackMarket,
+Apple Refurb, Best Buy, Newegg, Gazelle, Craigslist) were actually built and
+verified.
 
 Columns: **What it sells** | **Login to search?** | **Feasibility guess**
 
@@ -31,7 +32,7 @@ uses eBay, Swappa, Mercari, OfferUp, and BackMarket.
 | **OfferUp** *(in use)* | Everything, local peer-to-peer | No | Public search pages; some bot-detection reported |
 | **BackMarket** *(in use)* | Certified refurbished electronics only | No | Public catalog/search pages, likely scrapable |
 | **Facebook Marketplace** | Everything, local peer-to-peer | Partial — browsing/search works logged-out (dismiss the login prompt, or use `facebook.com/marketplace` with a ZIP code), but contacting sellers/alerts need an account | Heavy JS SPA; known for aggressive anti-scraping; project already treats this as needing a session-cookie approach |
-| **Craigslist** | Everything, local classifieds | No | Plain server-rendered HTML, historically very scrapable, no JS required |
+| **Craigslist** *(in use)* | Everything, local classifieds | No | Confirmed live (2026-07-31): search moved from per-city subdomains to a consolidated `www.craigslist.org/search/area/{region}` host, but the initial HTML response still embeds a complete no-JS-fallback listing list — plain HTTP scraping works, no Playwright needed. See `src/scrapers/craigslist.py`'s module docstring for full findings, including a Terms-of-Use caveat (Craigslist has historically been stricter/more litigious about scraping than this project's other sources, even though robots.txt allows the search paths used) |
 | **Poshmark** | Clothing, shoes, accessories (used & new via closet sellers) | Effectively yes for the app; desktop web search works without login, and Google `site:poshmark.com` search is a workaround | Server-rendered search results on desktop web, likely scrapable |
 | **Depop** | Fashion resale, vintage, streetwear (younger/Gen-Z skew) | No for browsing | JS-heavy app; being acquired by eBay from Etsy (deal closed July 30 2026) but continuing to operate under its own brand/site |
 | **Vinted** | Clothing, footwear, accessories, growing home-goods category; zero seller fees | No for browsing (account needed to sell/message) | Public search/category pages, likely scrapable; large EU-origin marketplace now active in the US |
@@ -87,7 +88,7 @@ biggest sources for used furniture by volume.
 | Site | What it sells | Login to search? | Scraping feasibility (best guess) |
 |---|---|---|---|
 | **Facebook Marketplace** *(see general section)* | Huge volume of local used furniture | Partial (browsing works logged-out) | Heavy JS SPA, session-cookie approach as already used in this project |
-| **Craigslist** *(see general section)* | Huge volume of local used furniture | No | Plain HTML, very scrapable |
+| **Craigslist** *(in use — see general section)* | Huge volume of local used furniture | No | Plain HTML fallback confirmed live, very scrapable |
 | **Chairish** | Curated vintage/high-end used furniture, décor, art | No for browsing | Public search pages, likely scrapable; acquired by Auction Technology Group (Aug 2025), still active in 2026 |
 | **AptDeco** | Used furniture marketplace with pickup/delivery logistics (NYC-founded, national) | No for browsing | Public catalog pages (`aptdeco.com/catalog/...`), likely scrapable |
 | **Wayfair Outlet** | Discounted overstock/discontinued/returned new furniture & home goods | No | Public site under `wayfair.com/daily-sales/closeout` plus physical outlet stores; likely scrapable |

@@ -80,6 +80,10 @@ sites:
   gazelle:
     enabled: true
     search_url: "https://buy.gazelle.com/search/suggest.json?q={{query}}&resources[type]=product"
+  craigslist:
+    enabled: true
+    region: "phoenix"
+    search_url: "https://www.craigslist.org/search/area/{{region}}?cat=sss&query={{query}}"
   facebook:
     enabled: false
     search_url: ""
@@ -151,6 +155,15 @@ def test_load_config():
         assert config.sites.ebay.enabled is True
         assert config.sites.swappa.enabled is False
         assert config.sites.apple_refurb.enabled is True
+        # Craigslist's region is config-driven (see config.py's
+        # SiteConfig.region and scrapers/craigslist.py) — confirm it
+        # actually parses through from config.yaml.
+        assert config.sites.craigslist.enabled is True
+        assert config.sites.craigslist.region == "phoenix"
+        # Sites that don't set `region` in YAML should default to None
+        # (the scraper itself falls back to "phoenix" — see
+        # CraigslistScraper.DEFAULT_REGION), not raise a KeyError.
+        assert config.sites.ebay.region is None
 
         # ── Verify schedule ─────────────────────────────────────
         assert config.schedule["cron"] == "0 */6 * * *"
