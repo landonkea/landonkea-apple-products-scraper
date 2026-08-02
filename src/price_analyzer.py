@@ -47,6 +47,59 @@ SUSPICIOUS_CONDITION_KEYWORDS = ["new", "sealed", "brand new", "factory sealed"]
 SUSPICIOUS_TAG = "⚠️ VERIFY PRICE — "
 
 
+def is_meaningful_price_drop(old_price: Optional[float], new_price: float,
+                              config: Config) -> bool:
+    """
+    Decide whether a listing's price change from `old_price` to
+    `new_price` is a meaningful "price drop" worth alerting on.
+
+    WHAT: Powers the price-drop alert (separate from the "great/good
+    deal" thresholds above, which only ever look at a listing the
+    first time it's seen). This is called on every re-scrape of an
+    ALREADY-KNOWN listing, comparing its previously recorded price
+    against the freshly scraped one.
+
+    THRESHOLD DESIGN (config.price_drop, see config.yaml): requires
+    BOTH min_drop_percent AND min_drop_usd to be cleared, same
+    "require multiple signals" style as SUSPICIOUS_PRICE_RATIO above.
+    A percent-only rule fires on trivial drops for cheap items (5% of
+    a $60 listing is $3 -- noise); a dollar-only rule fires on
+    trivial drops for expensive items ($50 off an $8,000 listing is
+    0.6% -- also noise). Requiring both keeps the alert meaningful
+    across the full price range these scrapers see.
+
+    Args:
+        old_price: The price this same listing (same source +
+            listing_id) was last recorded at, or None if this is the
+            first time we've ever seen it -- there's no prior price
+            to compare against, so it can never be a "drop".
+        new_price: The freshly scraped price.
+        config: The global Config object (reads config.price_drop).
+
+    Returns:
+        True if this qualifies as a meaningful price drop worth
+        alerting on, False otherwise (including: no prior price,
+        price stayed the same or went up, or the drop didn't clear
+        both thresholds).
+    """
+    drop_cfg = config.price_drop
+    if not drop_cfg.enabled:
+        return False
+
+    # First time we've ever seen this listing -- nothing to compare
+    # against, so this can never be a "drop".
+    if old_price is None:
+        return False
+
+    if old_price <= 0 or new_price >= old_price:
+        return False
+
+    drop_usd = old_price - new_price
+    drop_percent = (drop_usd / old_price) * 100
+
+    return drop_usd >= drop_cfg.min_drop_usd and drop_percent >= drop_cfg.min_drop_percent
+
+
 class PriceAnalyzer:
     """
     Analyzes listing prices and computes deal scores.

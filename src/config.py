@@ -88,6 +88,30 @@ class PriceConfig:
 
 
 @dataclass
+class PriceDropConfig:
+    """
+    Thresholds for a NEW alert type: an already-seen listing whose
+    price DROPS from what it was last recorded at (as opposed to the
+    existing "great/good deal" alerts, which fire when a listing is
+    first discovered).
+
+    Mirrors PriceConfig's style (plain numeric thresholds, no nested
+    logic) but requires BOTH a minimum percent AND minimum dollar
+    drop before alerting — a percent-only rule would fire on tiny
+    drops for expensive items (e.g. 5% of $8,000 = $400, fine) while
+    a dollar-only rule would fire on trivial drops for cheap items
+    (e.g. $50 off a $150,000... not applicable here, but the same
+    logic protects against a $50 drop on a $600 listing, which is a
+    real 8% swing worth seeing, vs. a $50 drop on a $7,000 listing,
+    which is noise). Requiring both keeps alerts meaningful across
+    the whole price range these scrapers see.
+    """
+    enabled: bool
+    min_drop_percent: float
+    min_drop_usd: float
+
+
+@dataclass
 class SiteConfig:
     """Settings for one marketplace site."""
     enabled: bool
@@ -244,6 +268,7 @@ class Config:
     alerts: AlertsConfig
     database: DatabaseConfig
     schedule: dict
+    price_drop: PriceDropConfig
     secrets: dict = field(default_factory=_load_env_secrets)
     # Which environment this run is executing in — "dev", "staging",
     # or "production". Defaulted via get_environment() (which itself
@@ -356,6 +381,10 @@ def load_config(path: str = "config.yaml") -> Config:
     alerts_raw      = raw["alerts"]
     db_raw          = raw["database"]
     generations_raw = raw.get("generations", {})
+    # .get() with defaults (not raw["price_drop"]) so any config.yaml
+    # written before this feature existed keeps loading unchanged —
+    # price-drop alerts are simply enabled with sane defaults.
+    price_drop_raw  = raw.get("price_drop", {})
 
     # Parse each search
     searches = []
@@ -421,6 +450,11 @@ def load_config(path: str = "config.yaml") -> Config:
             url=_environment_scoped_db_url(db_raw["url"], environment)
         ),
         schedule=raw["schedule"],
+        price_drop=PriceDropConfig(
+            enabled=price_drop_raw.get("enabled", True),
+            min_drop_percent=price_drop_raw.get("min_drop_percent", 5),
+            min_drop_usd=price_drop_raw.get("min_drop_usd", 50),
+        ),
         secrets=_load_env_secrets(),
         environment=environment,
     )
