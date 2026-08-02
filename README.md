@@ -62,7 +62,7 @@ See `.env.example` for the full list with descriptions. Locally these go in a `.
 | `bestbuy.py` | Best Buy | Playwright for JS-rendered search results |
 | `gazelle.py` | Gazelle | Plain HTTP + HTML parsing |
 | `newegg.py` | Newegg | Plain HTTP + HTML parsing |
-| `craigslist.py` | Craigslist | Plain HTTP + HTML parsing; config-driven metro region (`sites.craigslist.region`, defaults to Phoenix, AZ) |
+| `craigslist.py` | Craigslist | Plain HTTP + HTML parsing; config-driven list of metro regions (`sites.craigslist.regions`, defaults to `["phoenix"]`) — loops over every configured region (e.g. AZ/NM/CA/UT/NV/CO metros) to cover multiple states in one run |
 | `offerup.py` | OfferUp | Playwright, login-gated stub |
 | `facebook.py` | Facebook Marketplace | Login-gated stub, inert until `FACEBOOK_SESSION_COOKIE` is set |
 
