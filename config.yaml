@@ -199,13 +199,43 @@ sites:
     # applicable_product_types is left unset.
     #
     # Craigslist is organized by CITY/METRO REGION, not by state —
-    # each region has its own URL slug (e.g. "phoenix", "tucson").
-    # `region` is what makes that config-driven instead of hardcoded:
-    # change this one value to point the scraper at a different city
-    # (in Arizona or any other state) with no code changes. Defaults
-    # to "phoenix" (the largest Arizona metro) if omitted entirely —
-    # see scrapers/craigslist.py's DEFAULT_REGION.
-    region: "phoenix"
+    # each region has its own URL slug (e.g. "phoenix", "tucson"), and
+    # a single state maps to several regions (e.g. California alone
+    # has 20+). `regions` is a LIST so this scraper can "cast a wide
+    # net" across multiple metros/states in one run — the scraper
+    # loops over every entry here, aggregating results, with a polite
+    # delay between each request (see BaseScraper.fetch_page). Cross-
+    # source AND cross-region dedup is handled downstream in main.py
+    # by source+listing_id, so listing the same metro twice or having
+    # overlapping results across regions is harmless.
+    #
+    # Investigated Craigslist's "search nearby areas" feature first
+    # (see scrapers/craigslist.py's module docstring LIVE-TESTING
+    # FINDINGS) — it does not exist on the current consolidated
+    # www.craigslist.org/search/area/{region} search host (no
+    # searchNearby param, no nearby-areas UI element found live), so
+    # enumerating region slugs below is the only way to cover multiple
+    # states. Every slug below was verified live (2026-08-02) to
+    # return HTTP 200 with real listings — prioritizing population
+    # centers per state, not every rural sub-region.
+    #
+    # Covers: Arizona, New Mexico, California, Utah, Nevada, Colorado.
+    regions:
+      - "phoenix"        # AZ
+      - "tucson"         # AZ
+      - "albuquerque"    # NM
+      - "santafe"        # NM
+      - "losangeles"     # CA
+      - "sfbay"          # CA
+      - "sandiego"       # CA
+      - "sacramento"     # CA
+      - "saltlakecity"   # UT
+      - "provo"          # UT
+      - "lasvegas"       # NV
+      - "reno"           # NV
+      - "denver"         # CO
+      - "cosprings"      # CO (verified slug — NOT "coloradosprings", which 404s)
+      - "boulder"        # CO
     # NOTE: this search_url is not actually used programmatically —
     # src/scrapers/craigslist.py builds the real URL itself (it needs
     # to interpolate `region` and a server-side max_price filter, and
