@@ -5,15 +5,36 @@
 # (not by state) — each region used to live on its own subdomain
 # (e.g. phoenix.craigslist.org) and still does for the *listing detail*
 # page, but search itself has moved to a consolidated host. See the
-# LIVE-TESTING FINDINGS below. The region this scraper searches is a
-# config value (config.yaml sites.craigslist.region, default
-# "phoenix" — the largest Arizona metro), NOT hardcoded, so switching
-# to a different city/state later is a one-line config.yaml edit, no
-# code changes. See config.py's SiteConfig.region field.
+# LIVE-TESTING FINDINGS below. The region(s) this scraper searches are
+# a config value (config.yaml sites.craigslist.regions, a LIST — e.g.
+# ["phoenix", "tucson", "losangeles"]), NOT hardcoded, so widening or
+# narrowing coverage later is a config.yaml edit, no code changes. See
+# config.py's SiteConfig.regions field.
+#
+# MULTI-STATE / MULTI-REGION COVERAGE (added 2026-08-02): a single
+# Craigslist "region" is one metro, not a state — California alone
+# has 20+ separate regions (losangeles, sfbay, sandiego, sacramento,
+# etc). To cover multiple states, this scraper loops over EVERY slug
+# in config.yaml's sites.craigslist.regions and aggregates results,
+# reusing the same fetch_page() (which already rate-limits every
+# request — see BaseScraper.fetch_page's 1.5-2.5s randomized delay
+# and retry/backoff) so looping over many regions doesn't hammer
+# Craigslist with rapid-fire requests. Cross-region (and cross-source)
+# duplicate listings are handled downstream in main.py by
+# source+listing_id, not here — this scraper does its own in-run
+# de-dup by listing_id (same as before) but doesn't need to know or
+# care whether the same listing could theoretically appear under two
+# regions.
+#
+# A "search nearby areas" broadening feature (a checkbox/param on
+# classic per-city Craigslist search pages) was investigated FIRST as
+# a cheaper alternative to enumerating regions, and rejected — see
+# LIVE-TESTING FINDINGS point 10 below for what was actually checked.
 #
 # LIVE-TESTING FINDINGS (this is what the code below is built on —
 # do not "fix" this scraper based on assumptions without re-checking
-# these against the real site first. Checked 2026-07-31):
+# these against the real site first. Checked 2026-07-31, region-list
+# behavior + slugs re-verified 2026-08-02):
 #
 #   1. OLD per-city subdomain search URLs now 301-redirect to a NEW
 #      consolidated host. Confirmed via `curl -sIL`:
@@ -133,6 +154,41 @@
 #      this is a materially different risk profile than eBay/Swappa's
 #      scraper-tolerant public APIs, and is called out explicitly here
 #      rather than treated as equivalent-risk by default.
+#
+#  10. "SEARCH NEARBY AREAS" DOES NOT EXIST ON THE CONSOLIDATED HOST
+#      (checked 2026-08-02, before deciding to enumerate regions):
+#      fetched a live phoenix search both with and without
+#      `&searchNearby=1` appended
+#      (https://www.craigslist.org/search/area/phoenix?cat=sss&query=
+#      macbook+pro) — the param had NO effect on result count (111 vs
+#      112, within normal listing churn between two live fetches, not
+#      a meaningful broadening) and no listing outside the Phoenix
+#      metro area appeared. Also grepped the full raw HTML response
+#      for "nearby" (case-insensitive): zero matches — no checkbox,
+#      no UI element, no JS variable referencing a nearby-areas
+#      feature at all on this consolidated `/search/area/{region}`
+#      host. (The classic per-subdomain craigslist.org UI reportedly
+#      had this in the past, but it's gone from the current search
+#      page.) Also tried an `areaID=1` param as a guess at a
+#      multi-region combinator — no effect either. Conclusion: with no
+#      working single-request broadening mechanism, enumerating actual
+#      region slugs (see config.yaml sites.craigslist.regions) is the
+#      only way to cover multiple states, so that's what this scraper
+#      does — see the "MULTI-STATE / MULTI-REGION COVERAGE" note above
+#      the LIVE-TESTING FINDINGS section.
+#
+#  11. REGION SLUGS VERIFIED LIVE (2026-08-02): every slug below was
+#      curl-fetched against `https://www.craigslist.org/search/area/
+#      {slug}?cat=sss&query=macbook+pro` and confirmed HTTP 200 with a
+#      non-zero `cl-static-search-result` count (i.e. a real search
+#      page, not an error page): phoenix (AZ, 112 results), tucson
+#      (AZ, 14), albuquerque (NM, 13), santafe (NM, 11), losangeles
+#      (CA, 264), sfbay (CA, 343), sandiego (CA, 70), sacramento (CA,
+#      90), saltlakecity (UT, 6), provo (UT, 4), lasvegas (NV, 37),
+#      reno (NV, 12), denver (CO, 35), cosprings (CO, 7), boulder (CO,
+#      12). One guessed slug was WRONG and confirmed 404: Colorado
+#      Springs is "cosprings", NOT "coloradosprings" — don't
+#      reintroduce that typo.
 # ───────────────────────────────────────────────────────────────────
 
 import re
@@ -152,40 +208,44 @@ class CraigslistScraper(BaseScraper):
     in config.yaml's craigslist entry — so it's searched for every
     product type, not just MacBook Pro / iPhone.
 
-    The metro region searched (e.g. "phoenix") is config-driven via
-    config.sites.craigslist.region, defaulting to "phoenix" if unset.
-    See the module docstring's LIVE-TESTING FINDINGS for exactly how
-    the search URL, listing HTML structure, and filters were verified.
+    The metro region(s) searched (e.g. "phoenix", "tucson") are
+    config-driven via config.sites.craigslist.regions (a list),
+    defaulting to just Phoenix if unset. `scrape()` loops over every
+    configured region, aggregating results, to cover multiple states
+    in one run — see the module docstring's "MULTI-STATE / MULTI-
+    REGION COVERAGE" note. See the module docstring's LIVE-TESTING
+    FINDINGS for exactly how the search URL, listing HTML structure,
+    and filters were verified.
     """
 
     BASE_URL = "https://www.craigslist.org"
     # "for sale - all" — the broad category, not electronics-only
     # ("sya"). See LIVE-TESTING FINDINGS point 2 for why.
     CATEGORY = "sss"
-    # Fallback if config.yaml's sites.craigslist.region is unset —
-    # Phoenix is the largest Arizona metro (this project's default
-    # search area).
-    DEFAULT_REGION = "phoenix"
+    # Fallback if config.yaml's sites.craigslist.regions is unset or
+    # empty — Phoenix is the largest Arizona metro (this project's
+    # original default search area).
+    DEFAULT_REGIONS = ["phoenix"]
 
     def __init__(self, config: Config):
         super().__init__(config)
         self.source_name = "craigslist"
 
     @property
-    def region(self) -> str:
+    def regions(self) -> list[str]:
         """
-        The Craigslist metro region slug to search (e.g. "phoenix",
-        "tucson"). Config-driven — see config.py's SiteConfig.region
-        and config.yaml's sites.craigslist.region — so switching
-        metros never requires a code change.
+        The Craigslist metro region slugs to search (e.g. "phoenix",
+        "tucson", "losangeles"). Config-driven — see config.py's
+        SiteConfig.regions and config.yaml's sites.craigslist.regions
+        — so widening/narrowing coverage never requires a code change.
         """
         site_config = self.config.sites.craigslist
-        return site_config.region or self.DEFAULT_REGION
+        return list(site_config.regions) if site_config.regions else list(self.DEFAULT_REGIONS)
 
-    def _build_search_url(self) -> str:
+    def _build_search_url(self, region: str) -> str:
         """
-        Build the Craigslist search URL for the active search and
-        configured region.
+        Build the Craigslist search URL for the active search and a
+        given region.
 
         Uses the consolidated `/search/area/{region}` URL shape (see
         LIVE-TESTING FINDINGS point 1 — the old per-city subdomain
@@ -194,13 +254,16 @@ class CraigslistScraper(BaseScraper):
         avoid wasting a request on listings passes_filters() would
         reject anyway.
 
+        Args:
+            region: The Craigslist metro region slug to search.
+
         Returns:
-            A full Craigslist search URL.
+            A full Craigslist search URL for that region.
         """
         query = quote(self.config.search.product_name)
         max_price = int(self.config.price.absolute_max_usd)
         return (
-            f"{self.BASE_URL}/search/area/{self.region}"
+            f"{self.BASE_URL}/search/area/{region}"
             f"?cat={self.CATEGORY}&query={query}&max_price={max_price}"
         )
 
@@ -298,27 +361,35 @@ class CraigslistScraper(BaseScraper):
             gpu_cores=specs["gpu_cores"],
         )
 
-    def _fetch_cards(self) -> list:
+    def _fetch_cards(self, region: str) -> list:
         """
-        Fetch the Craigslist search results page and return its
-        listing cards (`li.cl-static-search-result` elements).
+        Fetch one region's Craigslist search results page and return
+        its listing cards (`li.cl-static-search-result` elements).
 
-        HOW: A single request gets the entire result set — see
-        LIVE-TESTING FINDINGS point 7 for why this scraper doesn't
-        paginate. Fetch/parse failures return an empty list rather
-        than raising, matching every other scraper's fetch-helper
-        pattern here (e.g. newegg.py's _fetch_page_cards()).
+        HOW: A single request per region gets that region's entire
+        result set — see LIVE-TESTING FINDINGS point 7 for why this
+        scraper doesn't paginate. Rate limiting between requests
+        (including across regions in scrape()'s loop) is handled by
+        fetch_page() itself (BaseScraper.fetch_page's randomized
+        1.5-2.5s delay + retry/backoff), so callers don't need to add
+        their own delay. Fetch/parse failures return an empty list
+        rather than raising, matching every other scraper's fetch-
+        helper pattern here (e.g. newegg.py's _fetch_page_cards()) —
+        one bad region shouldn't abort the whole multi-region scrape.
+
+        Args:
+            region: The Craigslist metro region slug to fetch.
 
         Returns:
             A list of BeautifulSoup `li.cl-static-search-result`
             elements. Empty if the fetch failed or there are no
             results.
         """
-        url = self._build_search_url()
+        url = self._build_search_url(region)
         try:
             html = self.fetch_page(url)
         except Exception as e:
-            print(f"  [Craigslist] Failed to fetch search results: {e}")
+            print(f"  [Craigslist] Failed to fetch search results for region={region}: {e}")
             return []
 
         soup = self.parse_html(html)
@@ -326,37 +397,57 @@ class CraigslistScraper(BaseScraper):
 
     def scrape(self) -> list[ScrapedListing]:
         """
-        Main entry point: fetch and parse Craigslist listings for the
-        active search and configured region.
+        Main entry point: fetch and parse Craigslist listings across
+        every configured region (config.sites.craigslist.regions —
+        see the module docstring's "MULTI-STATE / MULTI-REGION
+        COVERAGE" note).
 
-        1. Fetch the search results page (single request — see
-           LIVE-TESTING FINDINGS point 7).
-        2. Parse each listing card, apply passes_filters().
-        3. Deduplicate by listing_id, stopping once results_per_size
-           matches are collected.
+        For each configured region:
+          1. Fetch that region's search results page (single request
+             — see LIVE-TESTING FINDINGS point 7 — politely rate-
+             limited by fetch_page() same as every other request).
+          2. Parse each listing card, apply passes_filters().
+          3. Deduplicate by listing_id (both within and across
+             regions), stopping once results_per_size matches are
+             collected overall.
+
+        Cross-source duplicate listings (e.g. the same item also
+        found by another scraper) are deliberately NOT handled here —
+        that's main.py's job via source+listing_id, same as every
+        other scraper.
 
         Returns:
-            List of ScrapedListing objects matching our filters.
+            List of ScrapedListing objects matching our filters,
+            aggregated across all configured regions.
         """
         found: list[ScrapedListing] = []
         found_ids: set = set()
         max_results = self.config.search.results_per_size
 
-        cards = self._fetch_cards()
-
-        for item in cards:
+        for region in self.regions:
             if len(found) >= max_results:
                 break
-            try:
-                listing = self._parse_single_item(item)
-                if listing and listing.listing_id not in found_ids:
-                    if self.passes_filters(listing):
-                        found.append(listing)
-                        found_ids.add(listing.listing_id)
-            except Exception:
-                # Skip individual listing parse errors — don't fail
-                # the whole batch.
-                continue
 
-        print(f"  [Craigslist] Found {len(found)} matching listings (region={self.region})")
+            cards = self._fetch_cards(region)
+            region_count = 0
+
+            for item in cards:
+                if len(found) >= max_results:
+                    break
+                try:
+                    listing = self._parse_single_item(item)
+                    if listing and listing.listing_id not in found_ids:
+                        if self.passes_filters(listing):
+                            found.append(listing)
+                            found_ids.add(listing.listing_id)
+                            region_count += 1
+                except Exception:
+                    # Skip individual listing parse errors — don't
+                    # fail the whole batch.
+                    continue
+
+            print(f"  [Craigslist] region={region}: {region_count} matching listings")
+
+        print(f"  [Craigslist] Found {len(found)} matching listings total "
+              f"(regions={','.join(self.regions)})")
         return found
