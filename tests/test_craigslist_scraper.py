@@ -26,22 +26,22 @@ from bs4 import BeautifulSoup
 from scrapers.craigslist import CraigslistScraper
 
 
-def make_scraper(product_name="MacBook Pro", region=None, absolute_max_usd=8000):
+def make_scraper(product_name="MacBook Pro", regions=None, absolute_max_usd=8000, results_per_size=30):
     """
     Build a CraigslistScraper wired to a minimal fake config.
 
     WHY A FAKE CONFIG: The parsing/URL-building helpers under test
     here only ever read config.search.product_name, config.price.
-    absolute_max_usd, and config.sites.craigslist.region — a
+    absolute_max_usd, and config.sites.craigslist.regions — a
     SimpleNamespace covering just those fields avoids building out a
     full Config dataclass tree for no benefit (same pattern as
     test_newegg_scraper.py / test_gazelle_scraper.py).
     """
     fake_search = SimpleNamespace(
-        product_name=product_name, results_per_size=30, product_type="electronics"
+        product_name=product_name, results_per_size=results_per_size, product_type="electronics"
     )
     fake_price = SimpleNamespace(absolute_max_usd=absolute_max_usd)
-    fake_sites = SimpleNamespace(craigslist=SimpleNamespace(region=region))
+    fake_sites = SimpleNamespace(craigslist=SimpleNamespace(regions=regions))
     fake_config = SimpleNamespace(search=fake_search, price=fake_price, sites=fake_sites)
     return CraigslistScraper(fake_config)
 
@@ -51,36 +51,50 @@ def card_from_html(html: str):
     return BeautifulSoup(html, "lxml")
 
 
-# ── region ────────────────────────────────────────────────────────
+# ── regions ──────────────────────────────────────────────────────
 
-def test_region_defaults_to_phoenix_when_unset():
-    """config.sites.craigslist.region=None falls back to DEFAULT_REGION."""
-    scraper = make_scraper(region=None)
-    assert scraper.region == "phoenix"
+def test_regions_defaults_to_phoenix_when_unset():
+    """config.sites.craigslist.regions=None falls back to DEFAULT_REGIONS."""
+    scraper = make_scraper(regions=None)
+    assert scraper.regions == ["phoenix"]
 
 
-def test_region_uses_configured_value():
-    """A configured region (e.g. a different AZ city, or another state) wins."""
-    scraper = make_scraper(region="tucson")
-    assert scraper.region == "tucson"
+def test_regions_defaults_to_phoenix_when_empty_list():
+    """An empty list also falls back to DEFAULT_REGIONS (falsy, same as None)."""
+    scraper = make_scraper(regions=[])
+    assert scraper.regions == ["phoenix"]
+
+
+def test_regions_uses_configured_list():
+    """A configured multi-region list (multiple states) wins."""
+    scraper = make_scraper(regions=["phoenix", "tucson", "losangeles"])
+    assert scraper.regions == ["phoenix", "tucson", "losangeles"]
 
 
 # ── search URL ───────────────────────────────────────────────────
 
 def test_build_search_url_uses_region_category_and_max_price():
-    scraper = make_scraper("MacBook Pro", region="phoenix", absolute_max_usd=8000)
-    url = scraper._build_search_url()
+    scraper = make_scraper("MacBook Pro", regions=["phoenix"], absolute_max_usd=8000)
+    url = scraper._build_search_url("phoenix")
     assert url == (
         "https://www.craigslist.org/search/area/phoenix"
         "?cat=sss&query=MacBook%20Pro&max_price=8000"
     )
 
 
-def test_build_search_url_reflects_configured_region():
-    scraper = make_scraper("MacBook Pro", region="tucson", absolute_max_usd=500)
-    url = scraper._build_search_url()
+def test_build_search_url_reflects_given_region():
+    scraper = make_scraper("MacBook Pro", regions=["tucson"], absolute_max_usd=500)
+    url = scraper._build_search_url("tucson")
     assert url.startswith("https://www.craigslist.org/search/area/tucson")
     assert "max_price=500" in url
+
+
+def test_build_search_url_takes_region_as_argument_not_config():
+    """_build_search_url() builds a URL for whatever region is passed in,
+    independent of what's configured — scrape() calls it once per region."""
+    scraper = make_scraper("MacBook Pro", regions=["phoenix"], absolute_max_usd=1000)
+    url = scraper._build_search_url("sfbay")
+    assert url.startswith("https://www.craigslist.org/search/area/sfbay")
 
 
 # ── price parsing ────────────────────────────────────────────────
@@ -202,3 +216,106 @@ def test_parse_single_item_location_none_when_missing():
     listing = scraper._parse_single_item(item)
     assert listing is not None
     assert listing.location is None
+
+
+# ── scrape() — multi-region looping ─────────────────────────────────
+# scrape() itself needs live HTTP for _fetch_cards()'s fetch_page()
+# call, so these tests mock _fetch_cards() directly (network-free,
+# same spirit as the rest of this file) to verify the multi-region
+# aggregation/dedup/cap logic without hitting the network.
+
+def _card(listing_id_suffix: str, title: str = "MacBook Pro 128GB", price: str = "$500"):
+    html = (
+        '<li class="cl-static-search-result">'
+        f'<a href="https://www.craigslist.org/view/d/x/{listing_id_suffix}">'
+        f'<div class="title">{title}</div>'
+        f'<div class="details"><div class="price">{price}</div>'
+        '<div class="location">Somewhere</div></div>'
+        "</a></li>"
+    )
+    return card_from_html(html).select_one("li.cl-static-search-result")
+
+
+def test_scrape_aggregates_across_all_configured_regions(monkeypatch):
+    scraper = make_scraper(regions=["phoenix", "tucson"], results_per_size=30)
+    cards_by_region = {
+        "phoenix": [_card("p1"), _card("p2")],
+        "tucson": [_card("t1")],
+    }
+    monkeypatch.setattr(scraper, "_fetch_cards", lambda region: cards_by_region[region])
+    # passes_filters() delegates to the electronics ProductTypeHandler,
+    # which needs a full SearchConfig (chip_options, model_keywords,
+    # etc.) that the minimal fake_search in make_scraper() doesn't
+    # build — not what these tests are checking (that's covered
+    # elsewhere), so it's stubbed to always-pass here.
+    monkeypatch.setattr(scraper, "passes_filters", lambda listing: True)
+
+    results = scraper.scrape()
+
+    assert len(results) == 3
+    assert {r.listing_id for r in results} == {
+        "craigslist-p1", "craigslist-p2", "craigslist-t1",
+    }
+
+
+def test_scrape_stops_once_results_per_size_reached(monkeypatch):
+    scraper = make_scraper(regions=["phoenix", "tucson"], results_per_size=1)
+    cards_by_region = {
+        "phoenix": [_card("p1"), _card("p2")],
+        "tucson": [_card("t1")],
+    }
+    monkeypatch.setattr(scraper, "_fetch_cards", lambda region: cards_by_region[region])
+    # passes_filters() delegates to the electronics ProductTypeHandler,
+    # which needs a full SearchConfig (chip_options, model_keywords,
+    # etc.) that the minimal fake_search in make_scraper() doesn't
+    # build — not what these tests are checking (that's covered
+    # elsewhere), so it's stubbed to always-pass here.
+    monkeypatch.setattr(scraper, "passes_filters", lambda listing: True)
+
+    results = scraper.scrape()
+
+    # Caps at results_per_size and never even fetches tucson.
+    assert len(results) == 1
+
+
+def test_scrape_dedupes_listing_id_across_regions(monkeypatch):
+    scraper = make_scraper(regions=["phoenix", "tucson"], results_per_size=30)
+    # Same listing_id ("dupe") appears under both regions — only
+    # counted once.
+    cards_by_region = {
+        "phoenix": [_card("dupe")],
+        "tucson": [_card("dupe")],
+    }
+    monkeypatch.setattr(scraper, "_fetch_cards", lambda region: cards_by_region[region])
+    # passes_filters() delegates to the electronics ProductTypeHandler,
+    # which needs a full SearchConfig (chip_options, model_keywords,
+    # etc.) that the minimal fake_search in make_scraper() doesn't
+    # build — not what these tests are checking (that's covered
+    # elsewhere), so it's stubbed to always-pass here.
+    monkeypatch.setattr(scraper, "passes_filters", lambda listing: True)
+
+    results = scraper.scrape()
+
+    assert len(results) == 1
+
+
+def test_scrape_continues_past_a_region_with_no_cards(monkeypatch):
+    """A region that fails to fetch (empty list, per _fetch_cards's own
+    error handling) shouldn't stop other regions from being scraped."""
+    scraper = make_scraper(regions=["phoenix", "tucson"], results_per_size=30)
+    cards_by_region = {
+        "phoenix": [],
+        "tucson": [_card("t1")],
+    }
+    monkeypatch.setattr(scraper, "_fetch_cards", lambda region: cards_by_region[region])
+    # passes_filters() delegates to the electronics ProductTypeHandler,
+    # which needs a full SearchConfig (chip_options, model_keywords,
+    # etc.) that the minimal fake_search in make_scraper() doesn't
+    # build — not what these tests are checking (that's covered
+    # elsewhere), so it's stubbed to always-pass here.
+    monkeypatch.setattr(scraper, "passes_filters", lambda listing: True)
+
+    results = scraper.scrape()
+
+    assert len(results) == 1
+    assert results[0].listing_id == "craigslist-t1"
