@@ -10,6 +10,7 @@ Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box
 4. **Price analysis** — `src/price_analyzer.py` scores listings against configured "great deal"/"good deal" thresholds, with a universal suspicious-price-outlier check plus product-type-specific bonuses delegated to the active handler.
 5. **Alerts** — sends Discord webhook notifications (`src/notifier.py`) when a deal is found; production and non-production runs post to separate webhooks so test runs never spam the real channel.
 6. **Deduplication & retention** — SQLite database (`src/database.py`) with upsert logic prevents duplicate alerts; listings inactive for 72h are soft-expired, and listings inactive for 180+ days are hard-deleted (`prune_old_inactive_listings`).
+7. **Price-drop alerts** — a second, separate alert type from "new deal found": when a listing we've already seen before drops in price on a later scrape (e.g. a seller cuts $300 off an existing eBay listing), a dedicated Discord alert fires showing the old price, new price, and listing link. See [Price-Drop Alerts](#price-drop-alerts) below.
 
 ## Environments
 
@@ -42,9 +43,30 @@ ENVIRONMENT=dev PYTHONPATH=src python3 -m main
 Edit `config.yaml` to set:
 - **`searches`** — list of products to search for (`product_name`, `product_type`, chip/generation window, screen sizes, RAM, etc.)
 - **`price`** — deal thresholds (`absolute_max_usd`, `great_deal_usd` by RAM, `good_deal_usd`)
+- **`price_drop`** — price-drop alert thresholds (`enabled`, `min_drop_percent`, `min_drop_usd`) — see [Price-Drop Alerts](#price-drop-alerts)
 - **`sites`** — which marketplaces are enabled, and which `applicable_product_types` each one supports
 - **`alerts`** — Discord toggle
 - **`schedule`** — cron expression for GitHub Actions
+
+## Price-Drop Alerts
+
+Every alert described in "How It Works" above (the `price`/`great_deal_usd`/`good_deal_usd` thresholds) only ever fires when a listing is **first discovered**. Price-drop alerts are a separate mechanism layered on top: whenever a listing we've already seen on a prior scrape (same `source` + `listing_id`) shows up again at a **lower** price, that's a distinct signal worth its own alert — someone dropped their asking price on an item already in the database.
+
+**How it works:**
+1. `listing_to_db()` (`src/main.py`) captures a listing's price *before* the upsert overwrites it, so the prior price is never silently lost.
+2. `is_meaningful_price_drop()` (`src/price_analyzer.py`) compares old vs. new price against the `price_drop` config thresholds.
+3. If it qualifies, a dedicated "📉 Price Drop Alert" Discord message is sent (`Notifier.send_price_drop_alert()`), separate from and in addition to the regular deal alert for that run.
+
+**Threshold design** (`config.yaml`'s `price_drop:` section):
+```yaml
+price_drop:
+  enabled: true
+  min_drop_percent: 5   # must drop by at least 5%...
+  min_drop_usd: 50      # ...AND at least $50
+```
+A drop must clear **both** the percent and dollar minimum before it alerts — a percent-only rule fires on trivial drops for cheap items (5% of $60 is $3), and a dollar-only rule fires on trivial drops for expensive items ($50 off an $8,000 listing is 0.6%). Requiring both keeps alerts meaningful across the full price range these scrapers see, and prevents spam from tiny fluctuations (a seller nudging price by a few dollars).
+
+A listing's **first** appearance never triggers a price-drop alert — there's no prior price to compare against.
 
 ## Environment Variables
 
@@ -87,7 +109,8 @@ src/
 tests/
 ├── test_config.py, test_database.py, test_scrapers.py,
 ├── test_product_types.py, test_price_analyzer.py, test_environment.py,
-└── test_backmarket_scraper.py, test_gazelle_scraper.py, test_newegg_scraper.py, test_craigslist_scraper.py
+├── test_price_drop.py, test_backmarket_scraper.py, test_gazelle_scraper.py,
+└── test_newegg_scraper.py, test_craigslist_scraper.py
 docs/
 ├── marketplace-setup.md       # how to configure login-gated marketplaces
 └── marketplace-catalog.md     # researched reference of 34 candidate marketplaces
