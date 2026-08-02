@@ -102,14 +102,17 @@ class SiteConfig:
     # a future non-electronics search skips them instead of wasting a
     # request and returning zero every time.
     applicable_product_types: Optional[list[str]] = None
-    # Craigslist-specific: the metro region slug to search (e.g.
-    # "phoenix", "tucson") — Craigslist is organized by city/metro,
-    # not by state, so this picks which region's listings to fetch.
-    # None (the default) means the scraper falls back to its own
-    # DEFAULT_REGION ("phoenix"). Unused by every other site — see
+    # Craigslist-specific: the list of metro region slugs to search
+    # (e.g. ["phoenix", "tucson", "losangeles"]) — Craigslist is
+    # organized by city/metro, not by state, so a single state maps to
+    # multiple region slugs and this needs to be a list, not a single
+    # string, to "cast a wide net" across several states in one run.
+    # None/empty (the default) means the scraper falls back to its own
+    # DEFAULT_REGIONS (just Phoenix). Unused by every other site — see
     # scrapers/craigslist.py's module docstring for why this needs to
-    # be config-driven rather than hardcoded.
-    region: Optional[str] = None
+    # be config-driven rather than hardcoded, and for which region
+    # slugs were verified live.
+    regions: Optional[list[str]] = None
 
 
 @dataclass
@@ -267,7 +270,7 @@ def _parse_site(raw: dict) -> SiteConfig:
         search_url=raw.get("search_url", ""),
         base_url=raw.get("base_url", ""),
         applicable_product_types=raw.get("applicable_product_types"),
-        region=raw.get("region"),
+        regions=raw.get("regions"),
     )
 
 
