@@ -102,6 +102,14 @@ class SiteConfig:
     # a future non-electronics search skips them instead of wasting a
     # request and returning zero every time.
     applicable_product_types: Optional[list[str]] = None
+    # Craigslist-specific: the metro region slug to search (e.g.
+    # "phoenix", "tucson") — Craigslist is organized by city/metro,
+    # not by state, so this picks which region's listings to fetch.
+    # None (the default) means the scraper falls back to its own
+    # DEFAULT_REGION ("phoenix"). Unused by every other site — see
+    # scrapers/craigslist.py's module docstring for why this needs to
+    # be config-driven rather than hardcoded.
+    region: Optional[str] = None
 
 
 @dataclass
@@ -116,6 +124,7 @@ class SitesConfig:
     offerup: SiteConfig
     newegg: SiteConfig
     gazelle: SiteConfig
+    craigslist: SiteConfig
     facebook: SiteConfig
 
 
@@ -258,6 +267,7 @@ def _parse_site(raw: dict) -> SiteConfig:
         search_url=raw.get("search_url", ""),
         base_url=raw.get("base_url", ""),
         applicable_product_types=raw.get("applicable_product_types"),
+        region=raw.get("region"),
     )
 
 
@@ -391,6 +401,7 @@ def load_config(path: str = "config.yaml") -> Config:
             offerup=_parse_site(sites_raw["offerup"]),
             newegg=_parse_site(sites_raw["newegg"]),
             gazelle=_parse_site(sites_raw["gazelle"]),
+            craigslist=_parse_site(sites_raw["craigslist"]),
             facebook=_parse_site(sites_raw["facebook"]),
         ),
         alerts=AlertsConfig(

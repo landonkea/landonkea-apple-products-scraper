@@ -1,6 +1,6 @@
 # landonkea-apple-products-scraper
 
-Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box, Gazelle, and Newegg every 6 hours, alerting on great-priced deals for MacBook Pro (last 3 chip generations) and iPhone Pro Max (last 3 generations). OfferUp and Facebook Marketplace are wired in as login-gated stubs — they stay inert (zero network calls) until their session-cookie secrets are configured.
+Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box, Gazelle, Newegg, and Craigslist every 6 hours, alerting on great-priced deals for MacBook Pro (last 3 chip generations) and iPhone Pro Max (last 3 generations). OfferUp and Facebook Marketplace are wired in as login-gated stubs — they stay inert (zero network calls) until their session-cookie secrets are configured.
 
 ## How It Works
 
@@ -62,6 +62,7 @@ See `.env.example` for the full list with descriptions. Locally these go in a `.
 | `bestbuy.py` | Best Buy | Playwright for JS-rendered search results |
 | `gazelle.py` | Gazelle | Plain HTTP + HTML parsing |
 | `newegg.py` | Newegg | Plain HTTP + HTML parsing |
+| `craigslist.py` | Craigslist | Plain HTTP + HTML parsing; config-driven metro region (`sites.craigslist.region`, defaults to Phoenix, AZ) |
 | `offerup.py` | OfferUp | Playwright, login-gated stub |
 | `facebook.py` | Facebook Marketplace | Login-gated stub, inert until `FACEBOOK_SESSION_COOKIE` is set |
 
@@ -81,12 +82,12 @@ src/
 └── scrapers/
     ├── base.py                # BaseScraper ABC (rate limiting, dispatch to product_types)
     ├── ebay.py, swappa.py, apple_refurb.py, backmarket.py,
-    ├── mercari.py, bestbuy.py, gazelle.py, newegg.py,
+    ├── mercari.py, bestbuy.py, gazelle.py, newegg.py, craigslist.py,
     └── offerup.py, facebook.py
 tests/
 ├── test_config.py, test_database.py, test_scrapers.py,
 ├── test_product_types.py, test_price_analyzer.py, test_environment.py,
-└── test_backmarket_scraper.py, test_gazelle_scraper.py, test_newegg_scraper.py
+└── test_backmarket_scraper.py, test_gazelle_scraper.py, test_newegg_scraper.py, test_craigslist_scraper.py
 docs/
 ├── marketplace-setup.md       # how to configure login-gated marketplaces
 └── marketplace-catalog.md     # researched reference of 34 candidate marketplaces
