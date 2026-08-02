@@ -75,6 +75,33 @@ class Notifier:
                 self._send_discord(top_deals, stats)
             except Exception as e:
                 print(f"  [Notifier] Discord failed: {e}")
+
+    def send_price_drop_alert(self, price_drops: list[tuple[Listing, float]]):
+        """
+        Send price-drop alerts through all enabled channels.
+
+        WHAT: A SEPARATE alert type from send_alert() above -- fires
+        for listings we've already seen before whose price just
+        dropped meaningfully (see is_meaningful_price_drop in
+        price_analyzer.py), rather than for newly discovered listings.
+
+        Args:
+            price_drops: (listing, old_price) pairs -- `listing` is
+                the current (already-updated) Listing with its new
+                price_usd; `old_price` is what it was recorded at
+                before this scrape.
+        """
+        if not price_drops:
+            return
+
+        print(f"  [Notifier] Sending price-drop alerts for "
+              f"{len(price_drops)} listing(s)...")
+
+        if self.config.alerts.discord.enabled:
+            try:
+                self._send_discord_price_drop(price_drops)
+            except Exception as e:
+                print(f"  [Notifier] Discord price-drop alert failed: {e}")
     
     def _build_stats_summary_html(self, stats: dict) -> str:
         """
@@ -435,22 +462,8 @@ class Notifier:
             A list of messages, each a list of embed dicts — call
             _post_to_discord once per message.
         """
-        MAX_FIELDS_PER_EMBED = 25
-        MAX_EMBEDS_PER_MESSAGE = 10
-        # Discord's hard limit is 6000 combined per message; stay well
-        # under it since our count doesn't include Discord's exact
-        # JSON/markdown overhead, so leave real margin.
-        MAX_CHARS_PER_MESSAGE = 5500
-
         best = top_deals[0] if top_deals else None
-
-        def new_embed() -> dict:
-            return {
-                "title": title,
-                "color": 0x00ff00 if best and best.is_great_deal else 0xffaa00,
-                "fields": [],
-                "footer": {"text": footer_text},
-            }
+        color = 0x00ff00 if best and best.is_great_deal else 0xffaa00
 
         market_snapshot_field = {
             "name": "📊 Market Snapshot",
@@ -463,22 +476,146 @@ class Notifier:
             "inline": False,
         }
 
+        fields = [market_snapshot_field]
+        for i, listing in enumerate(top_deals):
+            rank = i + 1
+            emoji = "🔥" if listing.is_great_deal else "💰"
+            fields.append({
+                "name": f"{emoji} #{rank} — ${listing.price_usd:,.0f} | {listing.source}",
+                "value": f"[{listing.title[:80]}]({clean_url(listing.url)}) — Score: {listing.deal_score}/100",
+                "inline": False,
+            })
+
+        return self._paginate_discord_fields(fields, title, footer_text, color)
+
+    def _build_price_drop_field(self, listing: Listing, old_price: float) -> dict:
+        """
+        Build the Discord embed field for one price-drop alert.
+
+        WHAT: Renders one listing's source, old price, new price, drop
+        amount/percent, title, and link.
+        HOW: Mirrors the "one field per item" shape used by the
+        top-deals fields in _build_discord_messages, just with
+        price-drop-specific content (old → new price instead of a
+        deal-score rank).
+
+        Args:
+            listing: The listing whose price just dropped (already
+                holding its NEW price_usd).
+            old_price: What this listing was priced at before this
+                scrape.
+
+        Returns:
+            A Discord embed field dict.
+        """
+        drop_usd = old_price - listing.price_usd
+        drop_percent = (drop_usd / old_price) * 100 if old_price else 0
+        return {
+            "name": (
+                f"📉 {listing.source} — ${old_price:,.0f} → "
+                f"${listing.price_usd:,.0f} (-{drop_percent:.0f}%)"
+            ),
+            "value": (
+                f"[{listing.title[:80]}]({clean_url(listing.url)}) — "
+                f"saved ${drop_usd:,.0f}"
+            ),
+            "inline": False,
+        }
+
+    def _build_price_drop_discord_messages(
+        self, price_drops: list[tuple[Listing, float]],
+    ) -> list[list[dict]]:
+        """
+        Build one or more Discord messages for a batch of price drops.
+
+        WHAT: Turns `price_drops` into paginated MESSAGES the same way
+        _build_discord_messages does for new-deal alerts — one field
+        per dropped listing, same three Discord caps respected.
+        HOW: Delegates the actual pagination (field/embed/message caps)
+        to the same _paginate_discord_fields helper _build_discord_
+        messages uses, just with price-drop title/footer/color and
+        price-drop fields instead of deal-ranking fields.
+
+        Args:
+            price_drops: (listing, old_price) pairs.
+
+        Returns:
+            A list of messages, each a list of embed dicts.
+        """
+        product = self.config.search.product_name
+        title = f"📉 {product} Price Drop Alert"
+        footer_text = self._build_search_summary()
+        # Blue — visually distinct from the green/orange used for
+        # "new deal found" alerts, so a glance at the channel tells
+        # the two alert types apart.
+        color = 0x3498db
+
+        fields = [
+            self._build_price_drop_field(listing, old_price)
+            for listing, old_price in price_drops
+        ]
+
+        return self._paginate_discord_fields(fields, title, footer_text, color)
+
+    def _paginate_discord_fields(self, fields: list[dict], title: str,
+                                  footer_text: str, color: int) -> list[list[dict]]:
+        """
+        Split a flat list of embed fields into Discord-safe messages.
+
+        WHAT: Shared pagination engine used by both new-deal alerts
+        (_build_discord_messages) and price-drop alerts
+        (_build_price_drop_discord_messages). Discord enforces three
+        separate caps, and getting any one wrong causes the whole send
+        to fail with a 400:
+          1. 25 fields max per embed.
+          2. 10 embeds max per message.
+          3. 6000 characters max — NOT per embed, but summed across
+             every title/field-name/field-value/footer in ALL embeds
+             within one message combined. This is the one that broke
+             production: pagination was originally per-embed only, so
+             two embeds of ~3990 and ~2480 chars each individually
+             looked fine but summed to 6470 — over Discord's combined
+             6000-char message limit — and Discord rejected the whole
+             message with a 400, silently dropping 40 real deals.
+        So each new field is added to a running total that resets only
+        when a new MESSAGE starts (not a new embed) — once adding a
+        field would break any of the three caps, a new embed starts,
+        and if that also means starting past 10 embeds, a new MESSAGE
+        starts instead (its own fresh 6000-char budget).
+
+        Args:
+            fields: Every embed field to place, in order (the first
+                field stays first, etc).
+            title: Embed title, repeated on every embed.
+            footer_text: Embed footer text, repeated on every embed.
+            color: Embed color (0xRRGGBB).
+
+        Returns:
+            A list of messages, each a list of embed dicts — call
+            _post_to_discord once per message.
+        """
+        MAX_FIELDS_PER_EMBED = 25
+        MAX_EMBEDS_PER_MESSAGE = 10
+        # Discord's hard limit is 6000 combined per message; stay well
+        # under it since our count doesn't include Discord's exact
+        # JSON/markdown overhead, so leave real margin.
+        MAX_CHARS_PER_MESSAGE = 5500
+
+        def new_embed() -> dict:
+            return {
+                "title": title,
+                "color": color,
+                "fields": [],
+                "footer": {"text": footer_text},
+            }
+
         def field_chars(field: dict) -> int:
             return len(field["name"]) + len(field["value"])
 
         messages: list[list[dict]] = [[new_embed()]]
         message_chars = len(title) + len(footer_text)
-        messages[-1][-1]["fields"].append(market_snapshot_field)
-        message_chars += field_chars(market_snapshot_field)
 
-        for i, listing in enumerate(top_deals):
-            rank = i + 1
-            emoji = "🔥" if listing.is_great_deal else "💰"
-            field = {
-                "name": f"{emoji} #{rank} — ${listing.price_usd:,.0f} | {listing.source}",
-                "value": f"[{listing.title[:80]}]({clean_url(listing.url)}) — Score: {listing.deal_score}/100",
-                "inline": False,
-            }
+        for field in fields:
             this_field_chars = field_chars(field)
 
             current_message = messages[-1]
@@ -609,7 +746,47 @@ class Notifier:
                 "embeds": embeds,
             }
             self._post_to_discord(webhook_url, payload)
-    
+
+    def _send_discord_price_drop(self, price_drops: list[tuple[Listing, float]]):
+        """
+        Post a price-drop alert to a Discord channel via webhook.
+
+        WHAT: The price-drop counterpart to _send_discord() above —
+        same webhook resolution (prod vs. dev/staging gating) and same
+        send-one-message-per-page loop, just building price-drop
+        embeds instead of new-deal embeds.
+
+        Args:
+            price_drops: (listing, old_price) pairs.
+        """
+        # ── Environment gate — identical reasoning to _send_discord()
+        # above: never post price-drop alerts to the real production
+        # channel from a local/staging test run.
+        if is_production():
+            webhook_url = self.secrets.get("discord_webhook_url")
+        else:
+            dev_webhook_url = self.secrets.get("discord_webhook_url_dev")
+            if not dev_webhook_url:
+                print("[Notifier] Non-production environment — would "
+                      "send price-drop alert to Discord but "
+                      "DISCORD_WEBHOOK_URL_DEV not set, skipping.")
+                return
+            webhook_url = dev_webhook_url
+
+        if not webhook_url:
+            print("  [Notifier] Discord not configured — set "
+                  "DISCORD_WEBHOOK_URL env var.")
+            return
+
+        messages = self._build_price_drop_discord_messages(price_drops)
+
+        for embeds in messages:
+            payload = {
+                "username": "Apple Product Scraper",
+                "embeds": embeds,
+            }
+            self._post_to_discord(webhook_url, payload)
+
     def _store_message_id(self, response: requests.Response):
         """Save the Discord message ID for later cleanup."""
         try:
