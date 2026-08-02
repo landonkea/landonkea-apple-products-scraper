@@ -16,6 +16,7 @@
 import os
 import sys
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from config import load_config, Config
 from database import get_session, Listing, prune_old_inactive_listings, RETENTION_DAYS
@@ -33,7 +34,7 @@ from scrapers.gazelle import GazelleScraper
 from scrapers.craigslist import CraigslistScraper
 from scrapers.facebook import FacebookMarketplaceScraper
 
-from price_analyzer import PriceAnalyzer
+from price_analyzer import PriceAnalyzer, is_meaningful_price_drop
 from notifier import Notifier
 from stats_tracker import record_daily_stats
 from pages_generator import generate_pages_data
@@ -102,29 +103,43 @@ def get_enabled_scrapers(config: Config) -> list:
     return scrapers
 
 
-def listing_to_db(db, listing: ScrapedListing, config: Config) -> Listing:
+def listing_to_db(db, listing: ScrapedListing,
+                   config: Config) -> tuple[Listing, Optional[float]]:
     """
     Save or update a ScrapedListing in the database.
-    
+
     Uses "upsert" logic:
       - If a listing with the same source + listing_id exists,
         update it (price may have changed).
       - Otherwise, insert a new row.
-    
+
+    PRICE HISTORY NOTE: the existing row's price_usd is overwritten
+    on every re-scrape with no history preserved elsewhere -- the
+    caller needs the price it's ABOUT to overwrite (to detect a price
+    drop) before that happens, so this captures it up front and hands
+    it back rather than silently losing it.
+
     Args:
         db: Database session.
         listing: The parsed listing to save.
         config: Global config (for price thresholds).
-    
+
     Returns:
-        The saved Listing ORM object.
+        A tuple of (the saved Listing ORM object, the listing's price
+        immediately before this update -- or None if this is a
+        brand-new listing with no prior price to compare against).
     """
     # Try to find an existing listing with the same source + ID
     existing = db.query(Listing).filter(
         Listing.source == listing.source,
         Listing.listing_id == listing.listing_id,
     ).first()
-    
+
+    # Captured BEFORE any overwrite below -- None means "never seen
+    # before", which the caller uses to know a "price drop" can't
+    # apply (see is_meaningful_price_drop in price_analyzer.py).
+    old_price: Optional[float] = existing.price_usd if existing else None
+
     if existing:
         # Update existing listing
         existing.title = listing.title
@@ -162,10 +177,10 @@ def listing_to_db(db, listing: ScrapedListing, config: Config) -> Listing:
     ram = listing.ram_gb or 64
     threshold = config.price.great_deal_usd.get(ram, 5000)
     db_obj.is_great_deal = listing.price_usd <= threshold
-    
+
     db.commit()
-    
-    return db_obj
+
+    return db_obj, old_price
 
 
 def find_new_listings(db, scraped: list[ScrapedListing]) -> list[ScrapedListing]:
@@ -293,15 +308,29 @@ def _run_one_search(config: Config, search_config, db) -> None:
     print("\n💾 Saving to database...")
 
     db_listings: list[Listing] = []
+    # Listings that ALREADY existed and whose price just dropped by
+    # more than config.price_drop's thresholds -- a separate alert
+    # type from "new deal found" (see is_meaningful_price_drop).
+    price_drops: list[tuple[Listing, float]] = []
     for scraped in all_scraped:
         try:
-            db_obj = listing_to_db(db, scraped, config)
+            db_obj, old_price = listing_to_db(db, scraped, config)
             db_listings.append(db_obj)
+            # `old_price is not None` first so mypy narrows old_price
+            # to float within this branch (is_meaningful_price_drop
+            # already returns False for None, but that fact isn't
+            # visible to the type checker across the call boundary).
+            if old_price is not None and is_meaningful_price_drop(
+                old_price, float(db_obj.price_usd), config
+            ):
+                price_drops.append((db_obj, old_price))
         except Exception as e:
             print(f"  [DB] Error saving {scraped.title[:50]}: {e}")
             continue
 
     print(f"  Saved/updated {len(db_listings)} listings")
+    if price_drops:
+        print(f"  💧 Detected {len(price_drops)} meaningful price drop(s)")
 
     # ── 2b-2. Record daily price stats (for trend charts) ──
     stat_rows = record_daily_stats(db, search_config, db_listings)
@@ -341,6 +370,14 @@ def _run_one_search(config: Config, search_config, db) -> None:
         notifier.send_alert(top_deals, stats)
     else:
         print("  No new listings or great deals — skipping alert.")
+
+    # ── 2e-2. Send price-drop alerts ───────────────────────
+    # Independent of the "new deal" condition above -- a price drop
+    # on a listing we already know about is worth its own alert even
+    # when nothing new was found this run.
+    if price_drops:
+        print(f"\n💧 Sending price-drop alerts for {len(price_drops)} listing(s)...")
+        notifier.send_price_drop_alert(price_drops)
 
 
 def run_scrape(config: Config) -> int:
