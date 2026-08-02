@@ -192,6 +192,30 @@ sites:
     # 0 listings here today.
     search_url: "https://buy.gazelle.com/search/suggest.json?q={{query}}&resources[type]=product"
 
+  craigslist:
+    enabled: true
+    # General local classifieds — applies to every product type
+    # (like eBay/Swappa/Mercari/OfferUp/BackMarket), so
+    # applicable_product_types is left unset.
+    #
+    # Craigslist is organized by CITY/METRO REGION, not by state —
+    # each region has its own URL slug (e.g. "phoenix", "tucson").
+    # `region` is what makes that config-driven instead of hardcoded:
+    # change this one value to point the scraper at a different city
+    # (in Arizona or any other state) with no code changes. Defaults
+    # to "phoenix" (the largest Arizona metro) if omitted entirely —
+    # see scrapers/craigslist.py's DEFAULT_REGION.
+    region: "phoenix"
+    # NOTE: this search_url is not actually used programmatically —
+    # src/scrapers/craigslist.py builds the real URL itself (it needs
+    # to interpolate `region` and a server-side max_price filter, and
+    # the actual live search host is the consolidated
+    # www.craigslist.org/search/area/{region} form, not a per-city
+    # subdomain — see that file's module docstring LIVE-TESTING
+    # FINDINGS for exactly what was verified live). Kept here only as
+    # a human-readable reference of the URL shape.
+    search_url: "https://www.craigslist.org/search/area/{{region}}?cat=sss&query={{query}}&max_price={{max_price}}"
+
   # Facebook Marketplace requires a login — we handle this via
   # environment variables for the session cookie.
   facebook:
