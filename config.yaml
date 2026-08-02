@@ -111,6 +111,20 @@ price:
   # (Best Buy, OfferUp, and future Facebook + Amazon).
   top_deals_count: 40
 
+# ── PRICE DROP ALERTS ───────────────────────────────────────────────
+# A SEPARATE alert type from the "great/good deal" thresholds above.
+# Those fire when a listing is first discovered; this fires when a
+# listing we've ALREADY seen before drops in price on a later scrape
+# (e.g. a seller cuts $300 off an existing eBay listing).
+#
+# Requires BOTH a minimum percent AND a minimum dollar drop before
+# alerting, so a $5 price wiggle or a 1% rounding change never spams
+# Discord — only look at drops that clear both bars.
+price_drop:
+  enabled: true
+  min_drop_percent: 5   # must drop by at least 5%...
+  min_drop_usd: 50      # ...AND at least $50, whichever is stricter in context
+
 # ── WHAT SITES TO SCRAPE ───────────────────────────────────────────
 # Set a site to "enabled: false" to skip it without deleting it.
 # Each site has its own scraper module.
