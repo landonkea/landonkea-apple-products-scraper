@@ -107,8 +107,13 @@ jobs:
           git config user.name "Apple Product Scraper Bot"
           git config user.email "bot@landonkea-apple-products-scraper"
 
-          # Add the database file and the GitHub Pages data file
-          git add data/listings.db docs/data/daily_stats.json 2>/dev/null || true
+          # Add the database file, the GitHub Pages data file, and the
+          # watchlist (last_alerted_price/last_alerted_at bookkeeping
+          # so a tracked listing's unchanged price doesn't re-alert
+          # every run -- see src/watchlist.py). The `|| true` on `add`
+          # already covers a missing watchlist.json (no watchlist
+          # configured is the normal default state).
+          git add data/listings.db docs/data/daily_stats.json data/watchlist.json 2>/dev/null || true
 
           # Only commit if there are changes
           if git diff --cached --quiet; then
