@@ -38,6 +38,15 @@ data/*.db-shm
 # NOT ignored here.
 data/listings.dev.db
 
+# Watchlist state (see src/watchlist.py) is scoped per-environment,
+# same reasoning as the database above -- data/watchlist.json (the
+# real, production watchlist) IS committed on purpose (the scrape.yml
+# workflow explicitly commits it, same as data/listings.db), but the
+# dev/staging sibling files are throwaway/local-only and never should
+# be.
+data/watchlist.dev.json
+data/watchlist.staging.json
+
 # ── Environment variables (local testing) ─────────────────────
 # Create a .env file for local testing with your secrets.
 # NEVER commit tokens or passwords.
