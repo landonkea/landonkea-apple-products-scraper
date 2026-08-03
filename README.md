@@ -47,6 +47,70 @@ ENVIRONMENT=dev PYTHONPATH=src python3 -m main
 ENVIRONMENT=dev PYTHONPATH=src python3 -m main --dry-run
 ```
 
+## Running with Docker
+
+An alternative way to run the scraper — for local dev, or for
+self-hosting somewhere that isn't GitHub Actions. **This is
+additive, not a replacement**: the primary production runtime is
+still the GitHub Actions cron workflow (`.github/workflows/scrape.yml`),
+running every 6 hours exactly as described above. Nothing about that
+workflow changes because a Docker image also exists.
+
+The image installs this project's dependencies plus Playwright's
+Chromium binary (`playwright install --with-deps chromium`) — needed
+because several scrapers (eBay, Best Buy, OfferUp, Mercari, Back
+Market, Facebook) render pages with a real headless browser rather
+than plain HTTP requests. The rest of the scrapers (Swappa, Apple
+Refurb, Gazelle, Newegg, Craigslist) use plain `requests`/BeautifulSoup
+and don't need it, but all scrapers share one process/image.
+
+### docker compose (recommended for local dev)
+
+```bash
+cp .env.example .env     # fill in your own values, or leave blank —
+                          # ENVIRONMENT defaults to dev, which just
+                          # logs alerts instead of posting them
+
+docker compose run --rm scraper                # full scrape pass
+docker compose run --rm scraper --dry-run      # scrape, never alert
+docker compose build                            # rebuild after a dependency change
+```
+
+`docker-compose.yml` mounts `./data` into the container (so
+`data/listings.dev.db` and `data/watchlist.dev.json` persist across
+runs on the host instead of disappearing when the container exits)
+and mounts `./config.yaml` read-only (so you can tweak searches/
+thresholds without rebuilding the image). It also sets
+`shm_size: 1gb` — Docker's 64MB default `/dev/shm` is too small for
+headless Chromium and causes intermittent "Page crashed" errors from
+the Playwright-driven scrapers.
+
+### Plain `docker run`
+
+```bash
+docker build -t apple-product-scraper .
+
+docker run --rm \
+  --shm-size=1g \
+  -e ENVIRONMENT=dev \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/config.yaml:/app/config.yaml:ro" \
+  --env-file .env \
+  apple-product-scraper --dry-run
+```
+
+`--shm-size=1g` matters here too, for the same Chromium reason as
+above — a plain `docker run` without it doesn't get Docker Compose's
+`shm_size` setting for free.
+
+### CI
+
+`.github/workflows/docker-build.yml` builds the image and runs a real
+`--dry-run` scrape pass inside it on every push/PR to `main`/`staging`,
+as a smoke test that the Dockerfile and Playwright-in-a-container setup
+still work — separate from, and without touching, the production
+`scrape.yml`/`scrape-staging.yml` cron workflows.
+
 ## Configuration
 
 Edit `config.yaml` to set:
@@ -163,6 +227,9 @@ tests/
 docs/
 ├── marketplace-setup.md       # how to configure login-gated marketplaces
 └── marketplace-catalog.md     # researched reference of 34 candidate marketplaces
+Dockerfile                     # container image (alternative runtime, see "Running with Docker")
+docker-compose.yml             # local-dev container run, mounts data/ + config.yaml
+.dockerignore
 ```
 
 ## Running Tests
