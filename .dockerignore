@@ -1,0 +1,50 @@
+# ───────────────────────────────────────────────────────────────────
+# .dockerignore — keeps the build context small and the image clean
+# ───────────────────────────────────────────────────────────────────
+
+# ── Version control ──────────────────────────────────────────────
+.git/
+.github/
+
+# ── Python virtual environments / caches ────────────────────────
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# ── Tests & test artifacts ──────────────────────────────────────
+tests/
+test-results/
+
+# ── Runtime data (mounted via docker-compose, not baked in) ────
+data/
+docs/data/
+
+# ── Secrets / local env ─────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Docs / misc ──────────────────────────────────────────────────
+docs/
+scripts/
+*.md
+!README.md
+
+# ── OS / editor cruft ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Docker itself ────────────────────────────────────────────────
+Dockerfile
+.dockerignore
+docker-compose.yml
