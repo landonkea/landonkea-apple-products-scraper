@@ -66,6 +66,16 @@ class ScrapedListing:
     location: Optional[str]    # City/state from the listing
     cpu_cores: Optional[int] = None  # Parsed from title (e.g. 16-Core CPU)
     gpu_cores: Optional[int] = None  # Parsed from title (e.g. 40-Core GPU)
+    # ── Apparel-specific fields (see src/product_types/apparel.py) ──
+    # Always None for electronics listings -- only the apparel
+    # ProductTypeHandler's parse_specs() populates these, and only
+    # scrapers running an apparel search ever see non-None values here
+    # (every scraper builds ScrapedListing generically off
+    # parse_common_specs(), so no electronics scraper needs to change
+    # to leave these at their default).
+    size: Optional[float] = None    # US size, e.g. 10.5
+    brand: Optional[str] = None     # e.g. "Red Wing"
+    color: Optional[str] = None     # e.g. "black"
 
 
 # ── Base scraper ──────────────────────────────────────────────────
