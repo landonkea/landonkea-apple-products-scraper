@@ -19,7 +19,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from config import load_config, Config
-from database import get_session, Listing, prune_old_inactive_listings, RETENTION_DAYS
+from database import (
+    get_session,
+    Listing,
+    prune_old_inactive_listings,
+    record_price_history,
+    RETENTION_DAYS,
+)
 
 from scrapers.base import ScrapedListing
 from scrapers.ebay import eBayScraper
@@ -172,11 +178,20 @@ def listing_to_db(db, listing: ScrapedListing,
             gpu_cores=listing.gpu_cores,
         )
         db.add(db_obj)
-    
+        # Flush so db_obj.id is populated before record_price_history
+        # needs it (a brand-new row has no id until the INSERT runs).
+        db.flush()
+
     # Mark great deals
     ram = listing.ram_gb or 64
     threshold = config.price.great_deal_usd.get(ram, 5000)
     db_obj.is_great_deal = listing.price_usd <= threshold
+
+    # Per-listing price history (separate from DailyPriceStat's daily
+    # per-generation aggregate) -- only writes a new row when the
+    # price is new or has changed, see record_price_history()'s
+    # docstring for why.
+    record_price_history(db, db_obj, listing.price_usd)
 
     db.commit()
 
@@ -212,7 +227,19 @@ def find_new_listings(db, scraped: list[ScrapedListing]) -> list[ScrapedListing]
     return new_listings
 
 
-def expire_stale_listings(db, hours: int = 72) -> int:
+# A great deal that goes from "first seen" to "expired" (not seen
+# again) within this many hours was very likely bought by someone
+# else, not just a stale/removed listing -- worth its own alert since
+# it's a strong signal the price was genuinely good. 24h is generous
+# enough that a listing seen once, then expired on the very next
+# 6-hour scrape (the fastest possible "gone"), and even one seen a
+# couple of scrapes later still counts, while a deal that lingered for
+# days before quietly expiring (more likely just delisted/expired,
+# not sold) does not.
+SCOOPED_DEAL_HOURS = 24
+
+
+def expire_stale_listings(db, hours: int = 72) -> tuple[int, list[Listing]]:
     """
     Mark listings inactive if we haven't seen them again in `hours`.
 
@@ -221,12 +248,21 @@ def expire_stale_listings(db, hours: int = 72) -> int:
     going forward. Rows are kept (not deleted) — daily price-stat
     history relies on past listings still being in the table.
 
+    ALSO flags "scooped" great deals: listings that were flagged
+    is_great_deal AND whose entire visible lifetime (first_seen_at to
+    last_seen_at, i.e. from when we first saw it to the last time we
+    saw it before it went stale) was under SCOOPED_DEAL_HOURS. That
+    combination — a great price that vanished fast — is a strong
+    signal someone else bought it, which is worth surfacing on its
+    own (see notifier.py's send_scooped_deal_alert).
+
     Args:
         db: Database session.
         hours: How long a listing can go unseen before expiring.
 
     Returns:
-        The number of listings just marked inactive.
+        A tuple of (number of listings just marked inactive, the
+        subset of those that were great deals scooped up fast).
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     stale = (
@@ -234,10 +270,21 @@ def expire_stale_listings(db, hours: int = 72) -> int:
         .filter(Listing.is_active == True, Listing.last_seen_at < cutoff)
         .all()
     )
+
+    scooped: list[Listing] = []
     for listing in stale:
+        if (
+            listing.is_great_deal
+            and listing.first_seen_at is not None
+            and listing.last_seen_at is not None
+            and (listing.last_seen_at - listing.first_seen_at)
+            <= timedelta(hours=SCOOPED_DEAL_HOURS)
+        ):
+            scooped.append(listing)
         listing.is_active = False
+
     db.commit()
-    return len(stale)
+    return len(stale), scooped
 
 
 def _run_one_search(config: Config, search_config, db) -> None:
@@ -366,18 +413,30 @@ def _run_one_search(config: Config, search_config, db) -> None:
 
     has_great_deals = any(l.is_great_deal for l in top_deals)
 
-    if new_listings or has_great_deals:
-        notifier.send_alert(top_deals, stats)
+    if config.dry_run:
+        # --dry-run/--no-alert: run the full pipeline (scrape, save,
+        # analyze) but never actually post -- lets you test locally
+        # against the real config.yaml/database without spamming the
+        # real Discord channel.
+        if new_listings or has_great_deals:
+            print(f"  [dry-run] Would send alert for {len(top_deals)} top deal(s) — skipped.")
+        else:
+            print("  No new listings or great deals — skipping alert.")
+        if price_drops:
+            print(f"  [dry-run] Would send price-drop alert for {len(price_drops)} listing(s) — skipped.")
     else:
-        print("  No new listings or great deals — skipping alert.")
+        if new_listings or has_great_deals:
+            notifier.send_alert(top_deals, stats)
+        else:
+            print("  No new listings or great deals — skipping alert.")
 
-    # ── 2e-2. Send price-drop alerts ───────────────────────
-    # Independent of the "new deal" condition above -- a price drop
-    # on a listing we already know about is worth its own alert even
-    # when nothing new was found this run.
-    if price_drops:
-        print(f"\n💧 Sending price-drop alerts for {len(price_drops)} listing(s)...")
-        notifier.send_price_drop_alert(price_drops)
+        # ── 2e-2. Send price-drop alerts ───────────────────
+        # Independent of the "new deal" condition above -- a price
+        # drop on a listing we already know about is worth its own
+        # alert even when nothing new was found this run.
+        if price_drops:
+            print(f"\n💧 Sending price-drop alerts for {len(price_drops)} listing(s)...")
+            notifier.send_price_drop_alert(price_drops)
 
 
 def run_scrape(config: Config) -> int:
@@ -411,8 +470,22 @@ def run_scrape(config: Config) -> int:
     # Expire listings we haven't seen in 72+ hours (probably sold/removed).
     # Rows are kept, just excluded from "current deals" — price history
     # stays intact for trend charts.
-    expired_count = expire_stale_listings(db, hours=72)
+    expired_count, scooped_deals = expire_stale_listings(db, hours=72)
     print(f"  [DB] Expired {expired_count} listings not seen in 72+ hours")
+
+    if scooped_deals:
+        print(f"  🏃 {len(scooped_deals)} great deal(s) expired within "
+              f"{SCOOPED_DEAL_HOURS}h of first being seen — likely scooped:")
+        for scooped_listing in scooped_deals:
+            print(f"      • ${scooped_listing.price_usd:,.0f} | "
+                  f"{scooped_listing.source} | {scooped_listing.title[:60]}")
+
+        if config.dry_run:
+            print(f"  [dry-run] Would send scooped-deal alert for "
+                  f"{len(scooped_deals)} listing(s) — skipped.")
+        else:
+            notifier = Notifier(config)
+            notifier.send_scooped_deal_alert(scooped_deals)
 
     # Permanently delete listings that have been inactive for a long
     # time (see prune_old_inactive_listings() in database.py for why
@@ -444,33 +517,46 @@ def run_scrape(config: Config) -> int:
 def main():
     """
     CLI entry point.
-    
+
     Usage:
         apple-product-scraper                    # Normal run
         apple-product-scraper --config path.yaml  # Custom config path
         apple-product-scraper --once              # Single run (for testing)
-    
+        apple-product-scraper --dry-run           # Scrape/save/analyze but
+                                                     # never send Discord/email
+                                                     # alerts (--no-alert works
+                                                     # too, same behavior)
+
     When run via GitHub Actions, this is called automatically.
     """
     # Parse command-line args
     config_path = "config.yaml"
-    
+
     if "--config" in sys.argv:
         idx = sys.argv.index("--config")
         if idx + 1 < len(sys.argv):
             config_path = sys.argv[idx + 1]
-    
+
+    # --dry-run and --no-alert are accepted as synonyms -- both mean
+    # "run the real pipeline against the real config, but never
+    # actually post to Discord/email." Useful for testing scraper/
+    # scoring changes locally without spamming a live channel.
+    dry_run = "--dry-run" in sys.argv or "--no-alert" in sys.argv
+
     print(f"Loading config from: {config_path}")
-    
+
     # Check config exists
     if not os.path.exists(config_path):
         print(f"❌ Config file not found: {config_path}")
         print("   Copy config.yaml to the current directory.")
         sys.exit(1)
-    
+
     # Load config
     config = load_config(config_path)
-    
+    config.dry_run = dry_run
+    if dry_run:
+        print("🧪 --dry-run/--no-alert set: alerts will be logged but not sent.")
+
     # Run
     exit_code = run_scrape(config)
     sys.exit(exit_code)

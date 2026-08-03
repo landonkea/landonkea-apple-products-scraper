@@ -40,6 +40,13 @@ from product_types import PRODUCT_TYPES
 # genuine listing in that same batch was still ~80% of median, so
 # 50% leaves a wide, safe margin between "real cheap deal" and
 # "implausible for a claimed-new item" without needing a tighter cutoff.
+#
+# The actual thresholds now live in config.yaml's price: block
+# (price.suspicious_price_ratio / price.suspicious_min_sample) so
+# they're tunable without a code change, same as great_deal_usd /
+# good_deal_usd. These module constants are just the documented
+# defaults used if config.yaml doesn't set them (see config.py's
+# load_config()).
 SUSPICIOUS_PRICE_RATIO = 0.5   # under 50% of the batch median price
 SUSPICIOUS_MIN_SAMPLE = 3      # need at least this many listings for
                                 # "median" to be a meaningful reference
@@ -209,10 +216,13 @@ class PriceAnalyzer:
         only the "too good to be true for a claimed-new item"
         combination does, so real bargains aren't buried.
         """
+        min_sample = getattr(self.config.price, "suspicious_min_sample", SUSPICIOUS_MIN_SAMPLE)
+        price_ratio = getattr(self.config.price, "suspicious_price_ratio", SUSPICIOUS_PRICE_RATIO)
+
         median = stats.get("median", 0)
-        if median <= 0 or stats.get("count", 0) < SUSPICIOUS_MIN_SAMPLE:
+        if median <= 0 or stats.get("count", 0) < min_sample:
             return False
-        if listing.price_usd >= median * SUSPICIOUS_PRICE_RATIO:
+        if listing.price_usd >= median * price_ratio:
             return False
 
         text = f"{listing.condition or ''} {listing.title or ''}".lower()
@@ -271,13 +281,22 @@ class PriceAnalyzer:
         
         # Factor 2: Condition bonus (weight: low) — universal across
         # product types (a "new"/"excellent" boot is as much of a
-        # plus as a "new"/"excellent" laptop).
+        # plus as a "new"/"excellent" laptop). Includes the "Good" /
+        # "Fair" grading tiers used by Swappa/BackMarket/Gazelle-style
+        # condition grading (Excellent/Good/Fair) alongside "Excellent"
+        # above — "Good" previously fell through with no bonus at all
+        # even though it's a real, better-than-baseline condition
+        # grade; "Fair" is intentionally left with no bonus since it's
+        # the bottom of that grading scale, equivalent to an ungraded
+        # "Used" listing.
         if listing.condition:
             cond_lower = listing.condition.lower()
             if any(word in cond_lower for word in ["new", "certified", "refurbished"]):
                 score += 5
             elif any(word in cond_lower for word in ["open", "excellent"]):
                 score += 3
+            elif "good" in cond_lower:
+                score += 1
 
         # Factor 3: product-type-specific bonuses (weight: varies) —
         # for electronics this is RAM tier, chip generation, core
