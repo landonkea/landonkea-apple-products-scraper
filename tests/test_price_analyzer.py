@@ -119,6 +119,58 @@ def test_legitimately_cheap_used_listing_is_not_flagged():
     assert cheap.deal_score > 10.0
 
 
+def test_suspicious_ratio_is_config_driven():
+    """The suspicious-price cutoff (price.suspicious_price_ratio) must
+    actually be read from config, not just fall back to the module
+    default -- a tighter ratio should stop flagging a listing that
+    the default 0.5 ratio would have caught."""
+    # 238 / 1450 (median) ≈ 0.164 -- well under the default 0.5 ratio
+    # (flagged), but ABOVE a much tighter custom ratio of 0.1 (not
+    # flagged), proving the analyzer actually reads config here.
+    config = FakeConfig(
+        _make_search_config(),
+        _make_price_config(suspicious_price_ratio=0.1),
+    )
+    analyzer = PriceAnalyzer(config)
+
+    listings = [
+        _make_listing("New *Sealed* Apple iPhone 17 Pro Max 1TB Silver Unlocked", 238.0, "New"),
+        _make_listing("Apple iPhone 17 Pro Max 1TB Unlocked", 1450.0, "New"),
+        _make_listing("Apple iPhone 17 Pro Max 1TB Unlocked", 1499.0, "Used"),
+        _make_listing("Apple iPhone 17 Pro Max 1TB Unlocked", 1550.0, "New"),
+    ]
+
+    analyzed = analyzer.analyze(listings)
+    cheap = next(x for x in analyzed if x.price_usd == 238.0)
+
+    assert not cheap.title.startswith(SUSPICIOUS_TAG)
+
+
+def test_suspicious_min_sample_is_config_driven():
+    """A custom suspicious_min_sample should raise the bar for how
+    many listings are needed before the safeguard trusts the
+    median -- a batch below that bar must not get flagged even if it
+    would exceed the default of 3."""
+    config = FakeConfig(
+        _make_search_config(),
+        _make_price_config(suspicious_min_sample=10),
+    )
+    analyzer = PriceAnalyzer(config)
+
+    listings = [
+        _make_listing("New *Sealed* Apple iPhone 17 Pro Max 1TB Silver Unlocked", 238.0, "New"),
+        _make_listing("Apple iPhone 17 Pro Max 1TB Unlocked", 1450.0, "New"),
+        _make_listing("Apple iPhone 17 Pro Max 1TB Unlocked", 1499.0, "Used"),
+    ]
+
+    analyzed = analyzer.analyze(listings)
+    cheap = next(x for x in analyzed if x.price_usd == 238.0)
+
+    # Only 3 listings, below the custom min_sample of 10 -- safeguard
+    # must stay quiet even though the default (3) would have applied.
+    assert not cheap.title.startswith(SUSPICIOUS_TAG)
+
+
 def test_small_batch_does_not_trigger_safeguard():
     """With too few listings to trust a 'median', the safeguard
     should stay quiet rather than flag on noise."""

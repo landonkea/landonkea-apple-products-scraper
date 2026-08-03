@@ -9,8 +9,10 @@ Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box
 3. **Pluggable product types** — matching/filtering/scoring logic isn't hardcoded to Apple hardware. `src/product_types/` defines a `ProductTypeHandler` interface; `electronics.py` is the first (and currently only) implementation. Adding a new category later (e.g. a different product line) means writing one new handler file, not touching every scraper.
 4. **Price analysis** — `src/price_analyzer.py` scores listings against configured "great deal"/"good deal" thresholds, with a universal suspicious-price-outlier check plus product-type-specific bonuses delegated to the active handler.
 5. **Alerts** — sends Discord webhook notifications (`src/notifier.py`) when a deal is found; production and non-production runs post to separate webhooks so test runs never spam the real channel.
-6. **Deduplication & retention** — SQLite database (`src/database.py`) with upsert logic prevents duplicate alerts; listings inactive for 72h are soft-expired, and listings inactive for 180+ days are hard-deleted (`prune_old_inactive_listings`).
+6. **Deduplication & retention** — SQLite database (`src/database.py`) with upsert logic prevents duplicate alerts; listings inactive for 72h are soft-expired, and listings inactive for 180+ days are hard-deleted (`prune_old_inactive_listings`, which also cleans up their price history).
 7. **Price-drop alerts** — a second, separate alert type from "new deal found": when a listing we've already seen before drops in price on a later scrape (e.g. a seller cuts $300 off an existing eBay listing), a dedicated Discord alert fires showing the old price, new price, and listing link. See [Price-Drop Alerts](#price-drop-alerts) below.
+8. **Per-listing price history** — every price a specific listing has ever been seen at (not just daily aggregates) is recorded in a `price_history` table, one row per price *change* (not per scrape). See [Price History](#price-history) below.
+9. **Scooped-deal alerts** — a great deal that goes inactive within 24h of first being seen is very likely sold, and gets a dedicated "🏃 Scooped!" Discord alert. See [Scooped Deal Alerts](#scooped-deal-alerts) below.
 
 ## Environments
 
@@ -36,13 +38,18 @@ cp .env.example .env
 
 # Run once, locally, against the dev database
 ENVIRONMENT=dev PYTHONPATH=src python3 -m main
+
+# Run locally without sending any real Discord/email alerts
+# (--dry-run and --no-alert are synonyms) -- still scrapes, saves to
+# the database, and prints its normal summary, just never posts.
+ENVIRONMENT=dev PYTHONPATH=src python3 -m main --dry-run
 ```
 
 ## Configuration
 
 Edit `config.yaml` to set:
 - **`searches`** — list of products to search for (`product_name`, `product_type`, chip/generation window, screen sizes, RAM, etc.)
-- **`price`** — deal thresholds (`absolute_max_usd`, `great_deal_usd` by RAM, `good_deal_usd`)
+- **`price`** — deal thresholds (`absolute_max_usd`, `great_deal_usd` by RAM, `good_deal_usd`, `top_deals_count`, and the suspicious-price-outlier safeguard's `suspicious_price_ratio`/`suspicious_min_sample`)
 - **`price_drop`** — price-drop alert thresholds (`enabled`, `min_drop_percent`, `min_drop_usd`) — see [Price-Drop Alerts](#price-drop-alerts)
 - **`sites`** — which marketplaces are enabled, and which `applicable_product_types` each one supports
 - **`alerts`** — Discord toggle
@@ -67,6 +74,16 @@ price_drop:
 A drop must clear **both** the percent and dollar minimum before it alerts — a percent-only rule fires on trivial drops for cheap items (5% of $60 is $3), and a dollar-only rule fires on trivial drops for expensive items ($50 off an $8,000 listing is 0.6%). Requiring both keeps alerts meaningful across the full price range these scrapers see, and prevents spam from tiny fluctuations (a seller nudging price by a few dollars).
 
 A listing's **first** appearance never triggers a price-drop alert — there's no prior price to compare against.
+
+## Price History
+
+`DailyPriceStat` (used for the trend charts on the GitHub Pages site) only ever tracks a *daily aggregate* per product generation — it can't answer "what has this exact listing's price done over time?" The `price_history` table (`src/database.py`'s `PriceHistory` model) fills that gap: one row per `(listing_id, price_usd, recorded_at)`, written by `record_price_history()` alongside the existing upsert in `listing_to_db()`.
+
+To keep the table meaningful (and bounded), a new row is only written when a listing is seen for the **first** time, or its price **changes** from the last recorded point — a listing whose price never moves doesn't accumulate a near-duplicate row every 6-hour scrape. `prune_old_inactive_listings()` deletes a listing's price-history rows along with it once it's been inactive for 180+ days, so history never outlives its listing.
+
+## Scooped Deal Alerts
+
+A third alert type: when a listing flagged `is_great_deal` goes inactive (see `expire_stale_listings` — no longer seen in a scrape for 72+ hours) within 24 hours of first being found, it's very likely someone else bought it, not just a stale/removed listing. That combination — genuinely good price, gone fast — is a signal worth its own Discord alert (`Notifier.send_scooped_deal_alert()`), separate from and in addition to the regular deal/price-drop alerts. It's confirmation the scoring is finding real deals, and a data point for how fast to act next time.
 
 ## Environment Variables
 
@@ -110,7 +127,9 @@ tests/
 ├── test_config.py, test_database.py, test_scrapers.py,
 ├── test_product_types.py, test_price_analyzer.py, test_environment.py,
 ├── test_price_drop.py, test_backmarket_scraper.py, test_gazelle_scraper.py,
-└── test_newegg_scraper.py, test_craigslist_scraper.py
+├── test_newegg_scraper.py, test_craigslist_scraper.py,
+└── test_price_history.py, test_scooped_deal.py, test_dry_run.py,
+    test_listing_age.py, test_condition_bonus.py
 docs/
 ├── marketplace-setup.md       # how to configure login-gated marketplaces
 └── marketplace-catalog.md     # researched reference of 34 candidate marketplaces

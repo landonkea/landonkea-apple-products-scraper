@@ -268,3 +268,49 @@ def test_load_config_defaults_to_production_environment():
         assert config.database.url == "sqlite:///tmp/test_listings.db"
     finally:
         os.unlink(tmp_path)
+
+
+def test_suspicious_price_thresholds_default_when_absent():
+    """
+    config.yaml written before suspicious_price_ratio/
+    suspicious_min_sample existed (like SAMPLE_CONFIG, which omits
+    them) must still load, falling back to the documented defaults
+    (0.5 / 3) that used to be hardcoded module constants in
+    price_analyzer.py.
+    """
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml",
+                                     delete=False) as f:
+        f.write(SAMPLE_CONFIG)
+        tmp_path = f.name
+
+    try:
+        config = load_config(tmp_path)
+        assert config.price.suspicious_price_ratio == 0.5
+        assert config.price.suspicious_min_sample == 3
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_suspicious_price_thresholds_are_config_driven():
+    """
+    Setting suspicious_price_ratio/suspicious_min_sample in
+    config.yaml's price: block must override the defaults, the same
+    way great_deal_usd/good_deal_usd already are.
+    """
+    custom_config = SAMPLE_CONFIG.replace(
+        "top_deals_count: 25              # Show top 25 deals in the report",
+        "top_deals_count: 25              # Show top 25 deals in the report\n"
+        "  suspicious_price_ratio: 0.35\n"
+        "  suspicious_min_sample: 5",
+    )
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml",
+                                     delete=False) as f:
+        f.write(custom_config)
+        tmp_path = f.name
+
+    try:
+        config = load_config(tmp_path)
+        assert config.price.suspicious_price_ratio == 0.35
+        assert config.price.suspicious_min_sample == 5
+    finally:
+        os.unlink(tmp_path)
