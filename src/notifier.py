@@ -24,6 +24,7 @@ import requests
 from database import Listing
 from config import Config
 from environment import is_production
+from price_analyzer import format_score_breakdown
 
 
 def clean_url(url: str) -> str:
@@ -186,6 +187,37 @@ class Notifier:
                 self._send_discord_scooped_deal(scooped)
             except Exception as e:
                 print(f"  [Notifier] Discord scooped-deal alert failed: {e}")
+
+    def send_watchlist_alert(self, matches: list[tuple[dict, Listing]]):
+        """
+        Send watchlist alerts through all enabled channels.
+
+        WHAT: A FOURTH alert type (alongside send_alert's "new deal
+        found", send_price_drop_alert's "price dropped", and
+        send_scooped_deal_alert's "great deal vanished fast") -- fires
+        for listings a user explicitly chose to track via
+        data/watchlist.json (see src/watchlist.py), regardless of
+        whether they'd otherwise qualify as a "great deal" at all.
+        HOW: Same Discord-only send path as scooped-deal alerts --
+        low-volume, Discord-first heads-up, not worth a full email
+        template.
+
+        Args:
+            matches: (watchlist_entry, listing) pairs that are
+                alert-worthy this run -- see
+                watchlist.find_watchlist_alerts().
+        """
+        if not matches:
+            return
+
+        print(f"  [Notifier] Sending watchlist alerts for "
+              f"{len(matches)} listing(s)...")
+
+        if self.config.alerts.discord.enabled:
+            try:
+                self._send_discord_watchlist(matches)
+            except Exception as e:
+                print(f"  [Notifier] Discord watchlist alert failed: {e}")
 
     def _build_stats_summary_html(self, stats: dict) -> str:
         """
@@ -566,11 +598,30 @@ class Notifier:
             emoji = "🔥" if listing.is_great_deal else "💰"
             age = format_listing_age(listing.first_seen_at)
             age_suffix = f" — {age}" if age else ""
+
+            # "vs. Apple's own price" baseline, when this listing beats
+            # Apple Refurb's price for the exact same config -- see
+            # PriceAnalyzer._compute_apple_refurb_baselines().
+            vs_apple_line = ""
+            if listing.vs_apple_refurb_pct and listing.apple_refurb_price:
+                vs_apple_line = (
+                    f"\n🍎 {listing.vs_apple_refurb_pct:.0f}% below Apple's "
+                    f"refurb price (${listing.apple_refurb_price:,.0f})"
+                )
+
+            # "Why this scored X" breakdown -- see
+            # PriceAnalyzer._score_listing()/format_score_breakdown().
+            breakdown_line = ""
+            breakdown_str = format_score_breakdown(listing.deal_score_breakdown)
+            if breakdown_str:
+                breakdown_line = f"\n`{breakdown_str}`"
+
             fields.append({
                 "name": f"{emoji} #{rank} — ${listing.price_usd:,.0f} | {listing.source}",
                 "value": (
                     f"[{listing.title[:80]}]({clean_url(listing.url)}) — "
                     f"Score: {listing.deal_score}/100{age_suffix}"
+                    f"{vs_apple_line}{breakdown_line}"
                 ),
                 "inline": False,
             })
@@ -705,6 +756,73 @@ class Notifier:
         color = 0xe74c3c
 
         fields = [self._build_scooped_deal_field(listing) for listing in scooped]
+
+        return self._paginate_discord_fields(fields, title, footer_text, color)
+
+    def _build_watchlist_field(self, entry: dict, listing: Listing) -> dict:
+        """
+        Build the Discord embed field for one watchlist alert.
+
+        WHAT: Renders one tracked listing's price (with an old→new
+        arrow if this is a price CHANGE rather than a first sighting),
+        source, title/link, and the user's optional free-text note.
+        HOW: Mirrors _build_price_drop_field's "one field per item"
+        shape, just with watchlist-specific content.
+
+        Args:
+            entry: The watchlist entry (see watchlist.py's module
+                docstring for its shape) -- may or may not have a
+                `last_alerted_price` yet.
+            listing: The matched Listing, holding the current price.
+
+        Returns:
+            A Discord embed field dict.
+        """
+        last_price = entry.get("last_alerted_price")
+        if last_price is not None and float(last_price) != listing.price_usd:
+            price_str = f"${float(last_price):,.0f} → ${listing.price_usd:,.0f}"
+        else:
+            price_str = f"${listing.price_usd:,.0f}"
+
+        note = entry.get("note")
+        note_suffix = f" — {note}" if note else ""
+
+        return {
+            "name": f"🔭 {listing.source} — {price_str}",
+            "value": f"[{listing.title[:80]}]({clean_url(listing.url)}){note_suffix}",
+            "inline": False,
+        }
+
+    def _build_watchlist_discord_messages(
+        self, matches: list[tuple[dict, Listing]],
+    ) -> list[list[dict]]:
+        """
+        Build one or more Discord messages for a batch of watchlist
+        alerts.
+
+        WHAT: Turns `matches` into paginated MESSAGES the same way
+        _build_price_drop_discord_messages does -- one field per
+        tracked listing, same three Discord caps respected (see
+        _paginate_discord_fields).
+
+        Args:
+            matches: (watchlist_entry, listing) pairs to alert on.
+
+        Returns:
+            A list of messages, each a list of embed dicts.
+        """
+        title = "🔭 Watchlist Alert"
+        footer_text = (
+            "A listing you're tracking was newly matched or changed price."
+        )
+        # Purple — distinct from the green/orange "new deal", blue
+        # "price drop", and red "scooped" colors used elsewhere.
+        color = 0x9b59b6
+
+        fields = [
+            self._build_watchlist_field(entry, listing)
+            for entry, listing in matches
+        ]
 
         return self._paginate_discord_fields(fields, title, footer_text, color)
 
@@ -971,6 +1089,47 @@ class Notifier:
             return
 
         messages = self._build_scooped_deal_discord_messages(scooped)
+
+        for embeds in messages:
+            payload = {
+                "username": "Apple Product Scraper",
+                "embeds": embeds,
+            }
+            self._post_to_discord(webhook_url, payload)
+
+    def _send_discord_watchlist(self, matches: list[tuple[dict, Listing]]):
+        """
+        Post a watchlist alert to a Discord channel via webhook.
+
+        WHAT: The watchlist counterpart to _send_discord() /
+        _send_discord_price_drop() / _send_discord_scooped_deal()
+        above -- same webhook resolution (prod vs. dev/staging
+        gating) and same send-one-message-per-page loop, just
+        building watchlist embeds instead.
+
+        Args:
+            matches: (watchlist_entry, listing) pairs to alert on.
+        """
+        # ── Environment gate — identical reasoning to _send_discord()
+        # above: never post to the real production channel from a
+        # local/staging test run.
+        if is_production():
+            webhook_url = self.secrets.get("discord_webhook_url")
+        else:
+            dev_webhook_url = self.secrets.get("discord_webhook_url_dev")
+            if not dev_webhook_url:
+                print("[Notifier] Non-production environment — would "
+                      "send watchlist alert to Discord but "
+                      "DISCORD_WEBHOOK_URL_DEV not set, skipping.")
+                return
+            webhook_url = dev_webhook_url
+
+        if not webhook_url:
+            print("  [Notifier] Discord not configured — set "
+                  "DISCORD_WEBHOOK_URL env var.")
+            return
+
+        messages = self._build_watchlist_discord_messages(matches)
 
         for embeds in messages:
             payload = {
