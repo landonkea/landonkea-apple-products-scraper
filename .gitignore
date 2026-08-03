@@ -63,6 +63,12 @@ build/
 htmlcov/
 .pytest_cache/
 
+# test-results/latest.md (and the raw tool output it's built from)
+# is regenerated every run by scripts/run_tests_with_report.sh and
+# uploaded as a CI artifact — see test-results/.gitignore for the
+# directory-local rule that actually excludes it while keeping the
+# directory itself present in git.
+
 # ── Agent instructions — never commit ─────────────────────────
 AGENTS.md
 PROJECT_CHECKLIST.md

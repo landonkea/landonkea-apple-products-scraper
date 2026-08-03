@@ -1,0 +1,7 @@
+# This directory's generated content is intentionally not committed —
+# it's regenerated every run by scripts/run_tests_with_report.sh (and
+# uploaded as a CI build artifact on every GitHub Actions run). Only
+# this .gitignore itself (which keeps the directory present in git)
+# is tracked.
+*
+!.gitignore
