@@ -172,3 +172,28 @@ pytest tests/ -v
 ruff check .
 mypy src/
 ```
+
+### Persisted test report
+
+`scripts/run_tests_with_report.sh` runs all three of the commands
+above and writes a regenerated, human-readable summary to
+`test-results/latest.md` — a timestamp, a one-line pass/fail status
+for each tool, pytest's pass/fail/error/skip counts, and the full
+list of any failing tests (plus the ruff/mypy output when they fail).
+`test-results/latest.md` is gitignored (see `test-results/.gitignore`)
+since it's fully regenerated every run; only the directory itself is
+tracked.
+
+```bash
+./scripts/run_tests_with_report.sh
+```
+
+This same script runs as an additive step in both CI workflows
+(`.github/workflows/scrape-staging.yml` and `.github/workflows/scrape.yml`)
+on every run, and the resulting report is uploaded as a downloadable
+build artifact (`test-results-staging` / `test-results-production`)
+via `actions/upload-artifact` — so you can check the last N runs'
+pass/fail history from the Actions tab without digging through raw
+logs. It runs with `continue-on-error: true`, so a test/lint failure
+is visible in the report and artifact but never blocks the scheduled
+scraper run itself.
