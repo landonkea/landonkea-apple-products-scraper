@@ -111,6 +111,19 @@ price:
   # (Best Buy, OfferUp, and future Facebook + Amazon).
   top_deals_count: 40
 
+  # ── Suspicious-price safeguard ─────────────────────────────────
+  # A listing priced way below the rest of its batch AND claiming to
+  # be new/sealed is more likely mislabeled, a scam, or a typo than a
+  # genuine steal. See src/price_analyzer.py's module docstring for
+  # the full story (a real "New Sealed" iPhone found at $238 against
+  # a ~$1,400 true price prompted this).
+  # Flag a listing if its price is under this fraction of the batch
+  # median AND it claims new/sealed condition.
+  suspicious_price_ratio: 0.5
+  # Only apply the check once a batch has at least this many listings
+  # (so a tiny batch doesn't produce a meaningless "median").
+  suspicious_min_sample: 3
+
 # ── PRICE DROP ALERTS ───────────────────────────────────────────────
 # A SEPARATE alert type from the "great/good deal" thresholds above.
 # Those fire when a listing is first discovered; this fires when a
