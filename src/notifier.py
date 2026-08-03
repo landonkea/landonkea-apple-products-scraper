@@ -14,8 +14,10 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from typing import Optional
 
 import requests
 
@@ -28,6 +30,51 @@ def clean_url(url: str) -> str:
     url = re.sub(r'\?.*', '', url)
     url = re.sub(r'#.*', '', url)
     return url
+
+
+def format_listing_age(first_seen_at: Optional[datetime]) -> str:
+    """
+    Render "how long ago was this listing first seen" as a short,
+    human-friendly string for alerts, e.g. "Listed 4h ago" or
+    "Listed 3d ago".
+
+    WHY: "Listed 4 hours ago" is a real buyer signal (a fresh listing
+    is more likely still available / negotiable than one that's sat
+    for weeks) that wasn't previously surfaced anywhere in the alert.
+
+    HOW: `first_seen_at` comes back from SQLite as a naive datetime
+    (tzinfo stripped on round-trip even though it's stored as UTC --
+    see Listing.first_seen_at's default) -- this treats a naive value
+    as UTC rather than assuming local time, and also tolerates an
+    already-aware datetime (e.g. one built directly in a test) so
+    both cases produce a correct delta against "now".
+
+    Args:
+        first_seen_at: The listing's Listing.first_seen_at value, or
+            None if unknown.
+
+    Returns:
+        A string like "Listed 4h ago", or "" if first_seen_at is
+        None.
+    """
+    if first_seen_at is None:
+        return ""
+
+    seen = first_seen_at
+    if seen.tzinfo is None:
+        seen = seen.replace(tzinfo=timezone.utc)
+
+    seconds = max((datetime.now(timezone.utc) - seen).total_seconds(), 0)
+    minutes = seconds / 60
+    hours = minutes / 60
+    days = hours / 24
+
+    if hours < 1:
+        return f"Listed {max(int(minutes), 1)}m ago"
+    elif days < 1:
+        return f"Listed {int(hours)}h ago"
+    else:
+        return f"Listed {int(days)}d ago"
 
 
 class Notifier:
@@ -102,7 +149,44 @@ class Notifier:
                 self._send_discord_price_drop(price_drops)
             except Exception as e:
                 print(f"  [Notifier] Discord price-drop alert failed: {e}")
-    
+
+    def send_scooped_deal_alert(self, scooped: list[Listing]):
+        """
+        Send an alert when a great deal disappears fast — likely
+        bought by someone else.
+
+        WHAT: A THIRD alert type (alongside send_alert's "new deal
+        found" and send_price_drop_alert's "price dropped"), fired
+        from main.py's expire_stale_listings() cross-reference: a
+        listing that was flagged is_great_deal AND whose entire
+        visible lifetime (first seen to last seen) was under
+        SCOOPED_DEAL_HOURS.
+        HOW: Same Discord-only send path as the other alert types
+        (email isn't wired up for this one — it's a low-volume,
+        Discord-first heads-up, not something worth a full email).
+        WHY: Not previously surfaced anywhere — a great deal quietly
+        going inactive looked identical to any other listing expiring,
+        even though "great price, gone within a day" is a real signal
+        worth knowing (confirms the scoring is finding genuinely good
+        deals, and is a data point for how fast to act next time).
+
+        Args:
+            scooped: Listings that were great deals and expired fast.
+                Note these are already marked is_active=False by the
+                time this is called.
+        """
+        if not scooped:
+            return
+
+        print(f"  [Notifier] Sending scooped-deal alerts for "
+              f"{len(scooped)} listing(s)...")
+
+        if self.config.alerts.discord.enabled:
+            try:
+                self._send_discord_scooped_deal(scooped)
+            except Exception as e:
+                print(f"  [Notifier] Discord scooped-deal alert failed: {e}")
+
     def _build_stats_summary_html(self, stats: dict) -> str:
         """
         Build the "Market Overview" stats box HTML for the email body.
@@ -480,9 +564,14 @@ class Notifier:
         for i, listing in enumerate(top_deals):
             rank = i + 1
             emoji = "🔥" if listing.is_great_deal else "💰"
+            age = format_listing_age(listing.first_seen_at)
+            age_suffix = f" — {age}" if age else ""
             fields.append({
                 "name": f"{emoji} #{rank} — ${listing.price_usd:,.0f} | {listing.source}",
-                "value": f"[{listing.title[:80]}]({clean_url(listing.url)}) — Score: {listing.deal_score}/100",
+                "value": (
+                    f"[{listing.title[:80]}]({clean_url(listing.url)}) — "
+                    f"Score: {listing.deal_score}/100{age_suffix}"
+                ),
                 "inline": False,
             })
 
@@ -554,6 +643,68 @@ class Notifier:
             self._build_price_drop_field(listing, old_price)
             for listing, old_price in price_drops
         ]
+
+        return self._paginate_discord_fields(fields, title, footer_text, color)
+
+    def _build_scooped_deal_field(self, listing: Listing) -> dict:
+        """
+        Build the Discord embed field for one scooped-deal alert.
+
+        WHAT: Renders one listing's price, source, how fast it was
+        gone (last_seen_at - first_seen_at), title, and link.
+        HOW: Mirrors _build_price_drop_field's "one field per item"
+        shape, just with scooped-deal-specific content (lifetime
+        instead of old→new price).
+
+        Args:
+            listing: The great deal that expired fast. Expected to
+                have first_seen_at and last_seen_at set (main.py's
+                expire_stale_listings() only includes listings where
+                both are present).
+
+        Returns:
+            A Discord embed field dict.
+        """
+        lifetime_hours = 0.0
+        if listing.first_seen_at and listing.last_seen_at:
+            lifetime_hours = (
+                listing.last_seen_at - listing.first_seen_at
+            ).total_seconds() / 3600
+
+        return {
+            "name": f"🏃 ${listing.price_usd:,.0f} | {listing.source} — gone in {lifetime_hours:.0f}h",
+            "value": f"[{listing.title[:80]}]({clean_url(listing.url)}) — was a great deal",
+            "inline": False,
+        }
+
+    def _build_scooped_deal_discord_messages(
+        self, scooped: list[Listing],
+    ) -> list[list[dict]]:
+        """
+        Build one or more Discord messages for a batch of scooped
+        great deals.
+
+        WHAT: Turns `scooped` into paginated MESSAGES the same way
+        _build_price_drop_discord_messages does for price-drop
+        alerts — one field per listing, same three Discord caps
+        respected (see _paginate_discord_fields).
+
+        Args:
+            scooped: Great-deal listings that expired fast.
+
+        Returns:
+            A list of messages, each a list of embed dicts.
+        """
+        title = "🏃 Great Deal Alert — Scooped!"
+        footer_text = (
+            "A great deal disappeared shortly after being found — "
+            "probably sold to someone else."
+        )
+        # Orange/red-ish — distinct from the green "new deal" and blue
+        # "price drop" colors used elsewhere.
+        color = 0xe74c3c
+
+        fields = [self._build_scooped_deal_field(listing) for listing in scooped]
 
         return self._paginate_discord_fields(fields, title, footer_text, color)
 
@@ -779,6 +930,47 @@ class Notifier:
             return
 
         messages = self._build_price_drop_discord_messages(price_drops)
+
+        for embeds in messages:
+            payload = {
+                "username": "Apple Product Scraper",
+                "embeds": embeds,
+            }
+            self._post_to_discord(webhook_url, payload)
+
+    def _send_discord_scooped_deal(self, scooped: list[Listing]):
+        """
+        Post a scooped-great-deal alert to a Discord channel via
+        webhook.
+
+        WHAT: The scooped-deal counterpart to _send_discord() /
+        _send_discord_price_drop() above — same webhook resolution
+        (prod vs. dev/staging gating) and same send-one-message-per-
+        page loop, just building scooped-deal embeds instead.
+
+        Args:
+            scooped: Great-deal listings that expired fast.
+        """
+        # ── Environment gate — identical reasoning to _send_discord()
+        # above: never post to the real production channel from a
+        # local/staging test run.
+        if is_production():
+            webhook_url = self.secrets.get("discord_webhook_url")
+        else:
+            dev_webhook_url = self.secrets.get("discord_webhook_url_dev")
+            if not dev_webhook_url:
+                print("[Notifier] Non-production environment — would "
+                      "send scooped-deal alert to Discord but "
+                      "DISCORD_WEBHOOK_URL_DEV not set, skipping.")
+                return
+            webhook_url = dev_webhook_url
+
+        if not webhook_url:
+            print("  [Notifier] Discord not configured — set "
+                  "DISCORD_WEBHOOK_URL env var.")
+            return
+
+        messages = self._build_scooped_deal_discord_messages(scooped)
 
         for embeds in messages:
             payload = {
