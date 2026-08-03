@@ -124,6 +124,15 @@ price:
   # (so a tiny batch doesn't produce a meaningless "median").
   suspicious_min_sample: 3
 
+  # ── Per-source reliability scoring ──────────────────────────────
+  # Optional overrides/additions to price_analyzer.py's
+  # DEFAULT_SOURCE_RELIABILITY_BONUS map. Leave empty (the default)
+  # to use the built-in defaults for every source. Example: retune
+  # just OfferUp without touching every other source's default:
+  #   source_reliability:
+  #     offerup: -5
+  source_reliability: {}
+
 # ── PRICE DROP ALERTS ───────────────────────────────────────────────
 # A SEPARATE alert type from the "great/good deal" thresholds above.
 # Those fire when a listing is first discovered; this fires when a
