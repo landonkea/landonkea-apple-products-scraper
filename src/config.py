@@ -76,6 +76,20 @@ class SearchConfig:
     chip_generation_map: dict[str, int] = field(default_factory=dict)
     core_count_reference: dict[int, dict] = field(default_factory=dict)
     model_keywords: list[str] = field(default_factory=list)
+    # ── Apparel-specific fields (see src/product_types/apparel.py) ──
+    # Only meaningful when product_type: apparel. Left at their
+    # defaults for electronics searches, which keeps every existing
+    # config.yaml entry working unchanged -- same pattern as the
+    # generation-window fields above.
+    sizes: list[float] = field(default_factory=list)
+    # Acceptable US sizes, e.g. [10, 10.5, 11]. Empty means "any size".
+    preferred_brands: list[str] = field(default_factory=list)
+    # Brands that earn a scoring bonus, e.g. ["Red Wing", "Wolverine"].
+    # Does NOT filter -- an unlisted brand is still eligible, just
+    # scores no brand bonus (mirrors how chip_generation_map only
+    # bonuses, never excludes).
+    colors: list[str] = field(default_factory=list)
+    # Acceptable colors, e.g. ["black", "brown"]. Empty means "any color".
 
 
 @dataclass
@@ -429,6 +443,9 @@ def load_config(path: str = "config.yaml") -> Config:
             chip_generation_map=s.get("chip_generation_map", {}),
             core_count_reference=s.get("core_count_reference", {}),
             model_keywords=s.get("model_keywords", []),
+            sizes=s.get("sizes", []),
+            preferred_brands=s.get("preferred_brands", []),
+            colors=s.get("colors", []),
         ))
         if s.get("generation_family"):
             family_name = s["generation_family"]
