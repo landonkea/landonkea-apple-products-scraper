@@ -44,6 +44,14 @@ from price_analyzer import PriceAnalyzer, is_meaningful_price_drop
 from notifier import Notifier
 from stats_tracker import record_daily_stats
 from pages_generator import generate_pages_data
+from watchlist import (
+    load_watchlist,
+    save_watchlist,
+    match_watchlist_entries,
+    find_watchlist_alerts,
+    record_watchlist_alerts,
+    watchlist_path_for_environment,
+)
 
 
 # ── Scraper registry ──────────────────────────────────────────────
@@ -287,7 +295,13 @@ def expire_stale_listings(db, hours: int = 72) -> tuple[int, list[Listing]]:
     return len(stale), scooped
 
 
-def _run_one_search(config: Config, search_config, db) -> None:
+def _run_one_search(
+    config: Config,
+    search_config,
+    db,
+    watchlist_entries: Optional[list[dict]] = None,
+    watchlist_matches: Optional[list[tuple[dict, Listing]]] = None,
+) -> None:
     """
     Run one product search end-to-end: scrape, save, analyze, alert.
 
@@ -317,7 +331,24 @@ def _run_one_search(config: Config, search_config, db) -> None:
         search_config: The per-product search settings for this run
             (product name, screen sizes, chip, RAM, etc.).
         db: Database session, shared across all searches in this run.
+        watchlist_entries: All watchlist entries for this whole run
+            (see watchlist.load_watchlist()) -- a tracked URL isn't
+            tied to any one product search, so every search checks
+            the same full list against its own listings.
+        watchlist_matches: Shared accumulator this call appends
+            (entry, listing) matches into -- watchlist alerting/
+            saving happens once, after every product search has run
+            (see run_scrape()), not per-product.
+
+    Both watchlist_* args default to None (treated as "no watchlist
+    for this call") so this function stays easy to call/test in
+    isolation without a live watchlist to thread through.
     """
+    if watchlist_entries is None:
+        watchlist_entries = []
+    if watchlist_matches is None:
+        watchlist_matches = []
+
     product_name = search_config.product_name
     print(f"\n{'─'*60}")
     print(f"  Searching for: {product_name}")
@@ -378,6 +409,16 @@ def _run_one_search(config: Config, search_config, db) -> None:
     print(f"  Saved/updated {len(db_listings)} listings")
     if price_drops:
         print(f"  💧 Detected {len(price_drops)} meaningful price drop(s)")
+
+    # ── 2b-1. Cross-reference the watchlist ─────────────────
+    # Checked against every product search's own listings (a tracked
+    # URL might be for a product this search wasn't even looking for,
+    # e.g. a different RAM/storage combo) -- matches accumulate across
+    # all searches and are alerted on once at the end of run_scrape().
+    if watchlist_entries:
+        watchlist_matches.extend(
+            match_watchlist_entries(watchlist_entries, db_listings)
+        )
 
     # ── 2b-2. Record daily price stats (for trend charts) ──
     stat_rows = record_daily_stats(db, search_config, db_listings)
@@ -497,8 +538,39 @@ def run_scrape(config: Config) -> int:
     print()
 
     # ── 2. Run search for each product ─────────────────────────
+    # Watchlist entries are global (not per-product), so they're
+    # loaded once here and matched against every product search's
+    # listings, then alerted on/saved once after the loop -- see
+    # _run_one_search()'s docstring and watchlist.py's module
+    # docstring.
+    watchlist_path = watchlist_path_for_environment(config.environment)
+    watchlist_entries = load_watchlist(watchlist_path)
+    watchlist_matches: list[tuple[dict, Listing]] = []
+
     for search_config in config.searches:
-        _run_one_search(config, search_config, db)
+        _run_one_search(config, search_config, db, watchlist_entries, watchlist_matches)
+
+    # ── 2e-3. Send watchlist alerts ─────────────────────────────
+    if watchlist_entries:
+        watchlist_alerts = find_watchlist_alerts(watchlist_matches)
+        if watchlist_alerts:
+            print(f"\n🔭 {len(watchlist_alerts)} watchlist listing(s) newly "
+                  f"matched or changed price...")
+            if config.dry_run:
+                print(f"  [dry-run] Would send watchlist alert for "
+                      f"{len(watchlist_alerts)} listing(s) — skipped.")
+            else:
+                notifier = Notifier(config)
+                notifier.send_watchlist_alert(watchlist_alerts)
+                record_watchlist_alerts(watchlist_alerts)
+        # Persist regardless of whether anything was alert-worthy this
+        # run -- match_watchlist_entries() may have backfilled a fresh
+        # entry's source/listing_id even when its price didn't change
+        # (see watchlist.py's module docstring), and that resolution
+        # should stick for future runs. Skipped entirely in dry-run so
+        # a local test run never touches the real watchlist file.
+        if not config.dry_run:
+            save_watchlist(watchlist_entries, watchlist_path)
 
     # ── 2f. Export price-trend data for the GitHub Pages site ──
     print("\n📈 Updating price trend charts...")

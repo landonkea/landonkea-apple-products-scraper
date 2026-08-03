@@ -6,6 +6,7 @@
 # ───────────────────────────────────────────────────────────────────
 
 from datetime import datetime, timedelta, timezone
+from typing import Optional  # noqa: F401 -- used only in `# type:` comments below
 
 from sqlalchemy import (
     create_engine,
@@ -106,6 +107,43 @@ class Listing(Base):
 
     is_great_deal = Column(Boolean, default=False)
     # True if this listing is below the "great deal" threshold.
+
+    # ── Runtime-only scoring attributes (NOT database columns) ──
+    # These are plain Python attributes -- not Column(...) -- set by
+    # PriceAnalyzer during analyze() and read by Notifier right after,
+    # within the same process/run. They're never written to SQLite and
+    # never survive past the run that computed them (a fresh Listing
+    # loaded from the database on the next run starts back at the
+    # class-level default of None until analyze() runs again). This is
+    # deliberate: both are cheap to recompute every run from data
+    # that's already fully captured elsewhere (deal_score's inputs,
+    # and whatever Apple Refurb listings are in the current batch), so
+    # persisting them would just be one more thing that could go stale
+    # -- see price_analyzer.py's _score_listing()/analyze() docstrings.
+    # NOTE: deliberately NOT type-annotated (`x: Optional[dict] = None`)
+    # -- SQLAlchemy 2.0's Annotated Declarative form interprets a bare
+    # type-annotated class attribute as an attempt to map a column and
+    # raises MappedAnnotationError unless wrapped in Mapped[] (or the
+    # class opts out via __allow_unmapped__). Plain, unannotated class
+    # attributes are simply ordinary Python class attributes and don't
+    # trigger that check -- exactly what's wanted here.
+    deal_score_breakdown = None  # type: Optional[dict]
+    # Named components that sum to deal_score (base/price/condition/
+    # source/spec bonuses, plus any clamp/suspicious-cap adjustment).
+    # Powers the "why this scored X" transparency feature -- see
+    # price_analyzer.py's format_score_breakdown().
+
+    apple_refurb_price = None  # type: Optional[float]
+    # The lowest Apple Refurb price seen this run for this listing's
+    # exact (chip, ram_gb, storage_gb) config -- None if Apple Refurb
+    # isn't carrying that config in the current batch, or this
+    # listing isn't actually cheaper than it (see
+    # PriceAnalyzer._compute_apple_refurb_baselines()).
+
+    vs_apple_refurb_pct = None  # type: Optional[float]
+    # How far below apple_refurb_price this listing is, as a percent
+    # (e.g. 42.0 for "42% below Apple's own price for this config").
+    # None whenever apple_refurb_price is None.
 
     # ── Timestamps ────────────────────────────────────────────
     first_seen_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
