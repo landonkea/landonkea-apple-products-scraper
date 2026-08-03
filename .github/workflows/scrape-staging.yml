@@ -78,6 +78,24 @@ jobs:
         run: |
           playwright install --with-deps chromium
 
+      # Runs pytest/ruff/mypy and writes a persisted, human-readable
+      # summary to test-results/latest.md (see scripts/run_tests_with_report.sh
+      # and the "Running Tests" section of the README). continue-on-error
+      # so a tooling failure here never blocks the scraper run below —
+      # this step's whole purpose is visibility, not gating.
+      - name: Run tests and generate report
+        continue-on-error: true
+        run: |
+          ./scripts/run_tests_with_report.sh
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-staging
+          path: test-results/latest.md
+          retention-days: 30
+
       - name: Run scraper
         env:
           # The only line that differs functionally from scrape.yml's
