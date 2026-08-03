@@ -12,6 +12,7 @@ from sqlalchemy import (
     inspect,
     text,
     Column,
+    ForeignKey,
     Integer,
     Float,
     String,
@@ -174,6 +175,74 @@ class DailyPriceStat(Base):
         )
 
 
+# ── Per-listing price history ──────────────────────────────────────
+# DailyPriceStat (above) is a per-generation daily aggregate — great
+# for trend charts, but it can't answer "what has THIS listing's
+# price actually done over time" (e.g. did this exact eBay listing
+# get marked down twice before it sold?). This table is that: one row
+# per (listing, price-at-a-point-in-time), written whenever a scrape
+# sees a listing for the first time OR sees its price change. Rows
+# are never overwritten -- each is a permanent point in that listing's
+# price timeline.
+#
+# WHY NOT WRITE A ROW ON EVERY SCRAPE: the scraper runs every few
+# hours; a listing whose price never moves would otherwise accumulate
+# a near-duplicate row per run for as long as it stays listed, which
+# is pure noise for a "price history" (nothing changed) and would
+# make this table grow unboundedly fast. Writing only on
+# insert-or-price-change keeps every row meaningful: each one marks
+# an actual price point.
+class PriceHistory(Base):
+    """One price observation for one listing, at a point in time."""
+    __tablename__ = "price_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    listing_id = Column(Integer, ForeignKey("listings.id"), nullable=False, index=True)
+    # FK to Listing.id (not the marketplace's own listing_id) -- ties
+    # this row to a specific row in the listings table.
+
+    price_usd = Column(Float, nullable=False)
+    # The price recorded at this point in time.
+
+    recorded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    # When this price was observed.
+
+    def __repr__(self) -> str:
+        return (
+            f"<PriceHistory(listing_id={self.listing_id}, "
+            f"price=${self.price_usd:.0f}, recorded_at={self.recorded_at})>"
+        )
+
+
+def record_price_history(db, listing: Listing, price_usd: float) -> bool:
+    """
+    Append a PriceHistory row for `listing` if its price is new or
+    has changed since the last recorded point.
+
+    Args:
+        db: Database session.
+        listing: The Listing ORM object (must already have an id,
+            i.e. already inserted/flushed).
+        price_usd: The price to record.
+
+    Returns:
+        True if a new PriceHistory row was added, False if the last
+        recorded price already matches (nothing written).
+    """
+    last = (
+        db.query(PriceHistory)
+        .filter(PriceHistory.listing_id == listing.id)
+        .order_by(PriceHistory.recorded_at.desc())
+        .first()
+    )
+    if last is not None and last.price_usd == price_usd:
+        return False
+
+    db.add(PriceHistory(listing_id=listing.id, price_usd=price_usd))
+    return True
+
+
 # ── Database connection ───────────────────────────────────────────
 # This is how the rest of the code talks to SQLite.
 # Usage:
@@ -289,9 +358,25 @@ def prune_old_inactive_listings(db, days: int = RETENTION_DAYS) -> int:
         The number of rows deleted.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    stale_ids = [
+        row.id
+        for row in db.query(Listing.id)
+        .filter(Listing.is_active == False, Listing.last_seen_at < cutoff)
+        .all()
+    ]
+
+    if not stale_ids:
+        return 0
+
+    # Delete PriceHistory rows first -- there's no FK cascade set up
+    # on SQLite by default, so orphaned history rows would otherwise
+    # accumulate forever once their parent Listing is gone.
+    db.query(PriceHistory).filter(PriceHistory.listing_id.in_(stale_ids)).delete(
+        synchronize_session=False
+    )
     deleted = (
         db.query(Listing)
-        .filter(Listing.is_active == False, Listing.last_seen_at < cutoff)
+        .filter(Listing.id.in_(stale_ids))
         .delete(synchronize_session=False)
     )
     db.commit()

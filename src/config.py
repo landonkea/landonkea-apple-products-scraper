@@ -85,6 +85,13 @@ class PriceConfig:
     great_deal_usd: dict
     good_deal_usd: dict
     top_deals_count: int
+    # ── Suspicious-price safeguard thresholds ───────────────────
+    # Moved here from hardcoded constants in price_analyzer.py so
+    # they're tunable the same way great_deal_usd/good_deal_usd are,
+    # without a code change. See price_analyzer.py's module docstring
+    # for the full rationale behind these specific values.
+    suspicious_price_ratio: float = 0.5    # under 50% of batch median
+    suspicious_min_sample: int = 3         # min listings for a meaningful median
 
 
 @dataclass
@@ -285,6 +292,15 @@ class Config:
     # system instead of being an undeclared attribute nothing outside
     # main.py's loop could see was expected to exist.
     search: Optional["SearchConfig"] = None
+    # Set by main()'s CLI parsing when --dry-run or --no-alert is
+    # passed. When True, every notification send (email + Discord,
+    # both "new deal" and "price drop" alerts) is skipped -- the run
+    # still scrapes, saves to the database, and prints its normal
+    # summary, so it's safe to use for local testing against the real
+    # config without spamming a live Discord channel. Defaults to
+    # False so all existing callers (including load_config()) keep
+    # sending alerts exactly as before.
+    dry_run: bool = False
 
 
 # ── Helper: build a SiteConfig from raw YAML ──────────────────────
@@ -422,6 +438,11 @@ def load_config(path: str = "config.yaml") -> Config:
             great_deal_usd=price_raw["great_deal_usd"],
             good_deal_usd=price_raw["good_deal_usd"],
             top_deals_count=price_raw["top_deals_count"],
+            # .get() with defaults so any config.yaml written before
+            # these existed keeps loading unchanged (same pattern as
+            # price_drop_raw above).
+            suspicious_price_ratio=price_raw.get("suspicious_price_ratio", 0.5),
+            suspicious_min_sample=price_raw.get("suspicious_min_sample", 3),
         ),
         sites=SitesConfig(
             ebay=_parse_site(sites_raw["ebay"]),
