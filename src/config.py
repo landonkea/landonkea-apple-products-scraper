@@ -119,6 +119,30 @@ class PriceDropConfig:
 
 
 @dataclass
+class PriceDropConfig:
+    """
+    Thresholds for a NEW alert type: an already-seen listing whose
+    price DROPS from what it was last recorded at (as opposed to the
+    existing "great/good deal" alerts, which fire when a listing is
+    first discovered).
+
+    Mirrors PriceConfig's style (plain numeric thresholds, no nested
+    logic) but requires BOTH a minimum percent AND minimum dollar
+    drop before alerting — a percent-only rule would fire on tiny
+    drops for expensive items (e.g. 5% of $8,000 = $400, fine) while
+    a dollar-only rule would fire on trivial drops for cheap items
+    (e.g. $50 off a $150,000... not applicable here, but the same
+    logic protects against a $50 drop on a $600 listing, which is a
+    real 8% swing worth seeing, vs. a $50 drop on a $7,000 listing,
+    which is noise). Requiring both keeps alerts meaningful across
+    the whole price range these scrapers see.
+    """
+    enabled: bool
+    min_drop_percent: float
+    min_drop_usd: float
+
+
+@dataclass
 class SiteConfig:
     """Settings for one marketplace site."""
     enabled: bool
