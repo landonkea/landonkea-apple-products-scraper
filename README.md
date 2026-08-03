@@ -24,6 +24,8 @@ This project has three real environments, controlled by `ENVIRONMENT` (`src/envi
 | `staging` | GitHub Actions, `staging` branch (`.github/workflows/scrape-staging.yml`) | `data/listings.staging.db` (committed to `staging` branch only) | Dev webhook |
 | `production` | GitHub Actions, `main` branch, cron every 6h (`.github/workflows/scrape.yml`) | `data/listings.db` (committed to `main`) | Production webhook |
 
+The [watchlist](#watchlist) file is scoped the same way: `data/watchlist.dev.json` / `data/watchlist.staging.json` (both gitignored) vs. `data/watchlist.json` (committed to `main`).
+
 ## Quick Start
 
 ```bash
@@ -49,7 +51,7 @@ ENVIRONMENT=dev PYTHONPATH=src python3 -m main --dry-run
 
 Edit `config.yaml` to set:
 - **`searches`** — list of products to search for (`product_name`, `product_type`, chip/generation window, screen sizes, RAM, etc.)
-- **`price`** — deal thresholds (`absolute_max_usd`, `great_deal_usd` by RAM, `good_deal_usd`, `top_deals_count`, and the suspicious-price-outlier safeguard's `suspicious_price_ratio`/`suspicious_min_sample`)
+- **`price`** — deal thresholds (`absolute_max_usd`, `great_deal_usd` by RAM, `good_deal_usd`, `top_deals_count`, the suspicious-price-outlier safeguard's `suspicious_price_ratio`/`suspicious_min_sample`, and an optional `source_reliability` dict overriding/adding to `price_analyzer.py`'s built-in per-marketplace trust bonuses)
 - **`price_drop`** — price-drop alert thresholds (`enabled`, `min_drop_percent`, `min_drop_usd`) — see [Price-Drop Alerts](#price-drop-alerts)
 - **`sites`** — which marketplaces are enabled, and which `applicable_product_types` each one supports
 - **`alerts`** — Discord toggle
@@ -84,6 +86,34 @@ To keep the table meaningful (and bounded), a new row is only written when a lis
 ## Scooped Deal Alerts
 
 A third alert type: when a listing flagged `is_great_deal` goes inactive (see `expire_stale_listings` — no longer seen in a scrape for 72+ hours) within 24 hours of first being found, it's very likely someone else bought it, not just a stale/removed listing. That combination — genuinely good price, gone fast — is a signal worth its own Discord alert (`Notifier.send_scooped_deal_alert()`), separate from and in addition to the regular deal/price-drop alerts. It's confirmation the scoring is finding real deals, and a data point for how fast to act next time.
+
+## Watchlist
+
+A fourth alert type, and the only one driven by a human decision rather than the scraper's own scoring: track one specific listing (found by hand — e.g. an eBay auction with unusual RAM/storage that would never match a configured search) and get alerted whenever it's seen again or its price changes, regardless of deal score.
+
+**How it works:**
+1. Add an entry to `data/watchlist.json` (`data/watchlist.dev.json` locally — see [Environments](#environments)):
+   ```json
+   [
+     { "url": "https://www.ebay.com/itm/123456789", "note": "must buy under $3500" }
+   ]
+   ```
+   Only `url` is required; `note` is optional free text shown in the alert.
+2. Every run, `match_watchlist_entries()` (`src/watchlist.py`) cross-references every entry against that run's freshly scraped listings (by `source`+`listing_id` once resolved, falling back to a cleaned-URL match for a brand-new entry).
+3. `find_watchlist_alerts()` narrows matches down to ones actually worth alerting on: first sighting, or a price change (up **or** down — unlike price-drop alerts, a watched listing's price rising is just as relevant to a buy-now-or-wait decision) since the last alert.
+4. A dedicated "🔭 Watchlist Alert" Discord message fires (`Notifier.send_watchlist_alert()`), and the entry's `last_alerted_price`/`last_alerted_at` are updated so an unchanged price doesn't re-alert every 6-hour run.
+
+An entry with no match in a given run (not currently listed, sold, or a marketplace's scraper hit an error) is simply skipped — not an error.
+
+## Score Transparency & Apple Refurb Baseline
+
+Every listing's `deal_score` is now backed by a `deal_score_breakdown` — named components (`base`, `price_vs_median`, `condition`, `source_reliability`, `spec_bonus`, plus a `clamp_adjustment`/`suspicious_price_cap` when applicable) that sum to the final score, rendered as a compact one-line string (`format_score_breakdown()` in `src/price_analyzer.py`, e.g. `base 50 | price +18.2 | condition +5 | source +2 | specs +10`) under each listing in a Discord deal alert — no more re-deriving "why did this score 72?" by hand.
+
+Two of those components are new:
+- **`source_reliability`** — a small per-marketplace trust nudge (Apple Refurb/BackMarket +2, Swappa/Gazelle/BestBuy/Newegg +1, eBay 0, Mercari/Facebook -1, Craigslist/OfferUp -3), tunable via `config.yaml`'s `price.source_reliability`. It's a nudge, not a gate — a great price on Craigslist can still outscore a mediocre price on Apple Refurb.
+- **"vs. Apple's own price"** — whenever Apple Refurb is carrying the exact same configuration (`chip`, `ram_gb`, `storage_gb`) as another listing in the same batch, and that listing is cheaper, the alert shows e.g. "🍎 42% below Apple's refurb price ($3,199)" (`PriceAnalyzer._compute_apple_refurb_baselines()`).
+
+Both `deal_score_breakdown` and the Apple-refurb comparison fields are runtime-only attributes on `Listing` (not database columns) — cheap to recompute every run from data already in the current batch, so there's no schema migration and nothing to go stale.
 
 ## Environment Variables
 

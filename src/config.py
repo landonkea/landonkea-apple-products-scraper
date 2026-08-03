@@ -92,30 +92,13 @@ class PriceConfig:
     # for the full rationale behind these specific values.
     suspicious_price_ratio: float = 0.5    # under 50% of batch median
     suspicious_min_sample: int = 3         # min listings for a meaningful median
-
-
-@dataclass
-class PriceDropConfig:
-    """
-    Thresholds for a NEW alert type: an already-seen listing whose
-    price DROPS from what it was last recorded at (as opposed to the
-    existing "great/good deal" alerts, which fire when a listing is
-    first discovered).
-
-    Mirrors PriceConfig's style (plain numeric thresholds, no nested
-    logic) but requires BOTH a minimum percent AND minimum dollar
-    drop before alerting — a percent-only rule would fire on tiny
-    drops for expensive items (e.g. 5% of $8,000 = $400, fine) while
-    a dollar-only rule would fire on trivial drops for cheap items
-    (e.g. $50 off a $150,000... not applicable here, but the same
-    logic protects against a $50 drop on a $600 listing, which is a
-    real 8% swing worth seeing, vs. a $50 drop on a $7,000 listing,
-    which is noise). Requiring both keeps alerts meaningful across
-    the whole price range these scrapers see.
-    """
-    enabled: bool
-    min_drop_percent: float
-    min_drop_usd: float
+    # ── Per-source reliability scoring ──────────────────────────
+    # Optional overrides/additions to price_analyzer.py's
+    # DEFAULT_SOURCE_RELIABILITY_BONUS map (e.g. {"offerup": -5} to
+    # retune just one source without touching every default). Empty
+    # dict (the default) means "use the built-in defaults for every
+    # source" -- see PriceAnalyzer._source_reliability_bonus().
+    source_reliability: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -467,6 +450,7 @@ def load_config(path: str = "config.yaml") -> Config:
             # price_drop_raw above).
             suspicious_price_ratio=price_raw.get("suspicious_price_ratio", 0.5),
             suspicious_min_sample=price_raw.get("suspicious_min_sample", 3),
+            source_reliability=price_raw.get("source_reliability", {}),
         ),
         sites=SitesConfig(
             ebay=_parse_site(sites_raw["ebay"]),
