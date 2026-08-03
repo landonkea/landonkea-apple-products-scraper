@@ -1,0 +1,51 @@
+# ───────────────────────────────────────────────────────────────────
+# GitHub Actions workflow — container build + smoke test
+# ───────────────────────────────────────────────────────────────────
+# WHAT THIS IS: an ADDITIVE workflow that verifies the Dockerfile
+# still builds and the resulting image can actually run the scraper.
+# It does NOT touch scrape.yml or scrape-staging.yml, and it is not
+# the production runtime -- production is still the GitHub Actions
+# cron schedule in scrape.yml. This just catches "the Dockerfile/
+# Playwright-in-a-container setup broke" before it's discovered by
+# someone trying to self-host with Docker.
+#
+# The smoke test runs a real `python -m main --dry-run` pass inside
+# the built image against the checked-in config.yaml -- a real
+# scrape (network calls to real marketplaces, real Playwright/
+# Chromium launch) but with ENVIRONMENT=dev and --dry-run so it never
+# posts to Discord/email or touches the production database.
+# ───────────────────────────────────────────────────────────────────
+
+name: Docker Build
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+  workflow_dispatch:
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t apple-product-scraper:ci .
+
+      - name: Smoke test — real scrape pass inside the container
+        run: |
+          mkdir -p /tmp/docker-smoke-data
+          docker run --rm \
+            -e ENVIRONMENT=dev \
+            -v /tmp/docker-smoke-data:/app/data \
+            apple-product-scraper:ci --dry-run
+
+      - name: Verify the container actually wrote to the mounted data dir
+        run: |
+          ls -la /tmp/docker-smoke-data
+          test -f /tmp/docker-smoke-data/listings.dev.db
