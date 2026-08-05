@@ -36,6 +36,13 @@ generations:
     current_gen: 17        # bump when Apple ships the next iPhone
     lookback: 3              # search 17/16/15 Pro Max
 
+  ipad_pro:
+    tier: ""                # iPad Pro uses base M chips (M5, M4, M3), not "Pro" tier
+    current_gen: 5          # bump to 6 when Apple ships M6 iPad Pro
+    lookback: 3             # search M5/M4/M3 iPad Pro
+    # Empty tier means this generates chip_options: ["M5", "M4", "M3"]
+    # See _expand_generation() in config.py for how this works
+
 # ── WHAT TO SEARCH FOR ─────────────────────────────────────────────
 # List of products to search for.  The scraper runs once per product
 # and alerts you about the best deals on each one.
@@ -85,6 +92,21 @@ searches:
     location: ~
     results_per_size: 30
 
+  # ── iPad Pro (13-inch M5 preferred, 11-inch fallback;
+  # 16GB RAM; 512GB+ storage; WiFi + Cellular;
+  # last 3 generations via ipad_pro above — M5/M4/M3) ──
+  - product_name: "iPad Pro"
+    product_type: electronics
+    generation_family: ipad_pro
+    screen_sizes: [13, 11]  # 13-inch preferred, 11-inch fallback
+    ram_gb_primary: 16      # 16GB RAM
+    ram_gb_fallback: ~
+    storage_gb_min: 512     # 512GB minimum
+    storage_gb_max: ~
+    cellular: true          # WiFi + Cellular models only
+    location: ~
+    results_per_size: 30
+
   # ── EXAMPLE: a second, non-electronics product_type ────────────
   # Commented out on purpose -- this repo's owner only wants their
   # Discord channel alerting on MacBook Pro/iPhone deals, so this
@@ -120,14 +142,17 @@ price:
   # Based on research: 128GB models retail ~$6,200-9,700 new.
   # A great deal on 128GB would be under $5,000 (~25%+ off retail).
   # For 64GB, under $4,000.
+  # For iPad Pro 16GB, under $900 (~25%+ off retail).
   great_deal_usd:
     128: 5000    # 128GB: alert if under $5,000
     64:  4000    # 64GB:  alert if under $4,000
+    16:  900     # iPad Pro 16GB: alert if under $900
 
   # "Good deal" threshold — worth checking but less urgent.
   good_deal_usd:
     128: 5500    # 128GB: worth looking at under $5,500
     64:  4500    # 64GB:  worth looking at under $4,500
+    16:  1000    # iPad Pro 16GB: worth looking at under $1,000
 
   # Number of top deals to include in each alert email
   # Increased from 15 to 25 to account for more scraping sources
@@ -274,27 +299,21 @@ sites:
     # www.craigslist.org/search/area/{region} search host (no
     # searchNearby param, no nearby-areas UI element found live), so
     # enumerating region slugs below is the only way to cover multiple
-    # states. Every slug below was verified live (2026-08-02) to
-    # return HTTP 200 with real listings — prioritizing population
-    # centers per state, not every rural sub-region.
+    # states.
     #
-    # Covers: Arizona, New Mexico, California, Utah, Nevada, Colorado.
+    # WHICH REGIONS TO SEARCH IS DELIBERATELY NOT SET HERE: your real
+    # region list reveals your approximate location (which metros
+    # you're near), so it lives in config.local.yaml instead — a
+    # gitignored file that overrides this one at runtime (see
+    # config.local.yaml.example for the format and load_config()'s
+    # docstring in src/config.py for how the merge works). In CI, the
+    # real list comes from the CRAIGSLIST_REGIONS_YAML GitHub Secret
+    # instead (see .github/workflows/scrape*.yml) — it's never
+    # committed anywhere. The single region below is just a working
+    # placeholder so this file runs out of the box with zero setup;
+    # replace it via config.local.yaml, don't edit it here.
     regions:
-      - "phoenix"        # AZ
-      - "tucson"         # AZ
-      - "albuquerque"    # NM
-      - "santafe"        # NM
-      - "losangeles"     # CA
-      - "sfbay"          # CA
-      - "sandiego"       # CA
-      - "sacramento"     # CA
-      - "saltlakecity"   # UT
-      - "provo"          # UT
-      - "lasvegas"       # NV
-      - "reno"           # NV
-      - "denver"         # CO
-      - "cosprings"      # CO (verified slug — NOT "coloradosprings", which 404s)
-      - "boulder"        # CO
+      - "newyork"        # placeholder — see comment above
     # NOTE: this search_url is not actually used programmatically —
     # src/scrapers/craigslist.py builds the real URL itself (it needs
     # to interpolate `region` and a server-side max_price filter, and
@@ -328,10 +347,24 @@ alerts:
     enabled: true
 
 # ── RUN SCHEDULE ───────────────────────────────────────────────────
-# How often to run the scraper.
-# This is a cron expression.  "0 */6 * * *" = every 6 hours.
+# .github/workflows/scrape.yml's trigger fires every hour, but each
+# firing only does real work if the current UTC hour is listed below
+# -- everything else exits in a few seconds (see that workflow's
+# "Check if this hour should run" step). Edit this list any time; it
+# takes effect on the next hourly firing, no workflow/code change or
+# redeploy needed.
+#
+# guaranteed_hours_utc: hours that always run. 13 = 6am America/Phoenix
+# (UTC-7 year-round -- Arizona doesn't observe DST, so this doesn't
+# drift twice a year the way most US timezones would).
+#
+# additional_hours_utc: extra run hours beyond the guaranteed ones,
+# e.g. [1, 7, 19] for four runs/day spread out. Empty by default --
+# add hours here if you want fresher data than once a day and are
+# fine with the added GitHub Actions usage.
 schedule:
-  cron: "0 */6 * * *"
+  guaranteed_hours_utc: [13]
+  additional_hours_utc: []
 
 # ── DATABASE ───────────────────────────────────────────────────────
 database:

@@ -168,3 +168,82 @@ def test_score_bonuses_prefers_newest_chip_generation():
     newest = Listing(source="t", listing_id="1", title="t", price_usd=100, url="u", chip="M5 Max")
     oldest = Listing(source="t", listing_id="2", title="t", price_usd=100, url="u", chip="M3 Max")
     assert handler.score_bonuses(newest, search) > handler.score_bonuses(oldest, search)
+
+
+# ── iPad Pro support ─────────────────────────────────────────────────
+
+def test_is_likely_ipad_pro_accepts_genuine_listing():
+    from product_types.electronics import is_likely_ipad_pro
+    assert is_likely_ipad_pro("Apple iPad Pro 13-inch M5 chip 16GB RAM 512GB") is True
+    assert is_likely_ipad_pro("iPad Pro 13-inch M4 256GB Storage") is True
+    assert is_likely_ipad_pro("Refurbished iPad Pro 13-inch (M5) 1TB") is True
+
+
+def test_is_likely_ipad_pro_rejects_accessories():
+    from product_types.electronics import is_likely_ipad_pro
+    assert is_likely_ipad_pro("Case for iPad Pro 13-inch") is False
+    assert is_likely_ipad_pro("iPad Pro Screen Protector") is False
+    assert is_likely_ipad_pro("Apple Pencil for iPad Pro") is False
+    assert is_likely_ipad_pro("iPad Pro Keyboard Case") is False
+
+
+def test_is_likely_ipad_pro_rejects_bad_condition():
+    from product_types.electronics import is_likely_ipad_pro
+    assert is_likely_ipad_pro("iPad Pro 13-inch M5 512GB - For Parts") is False
+    assert is_likely_ipad_pro("iPad Pro 13-inch M5 512GB - Not Working") is False
+    assert is_likely_ipad_pro("iPad Pro 13-inch M5 512GB - Cracked Screen") is False
+
+
+def test_passes_filters_uses_ipad_min_price_for_ipad_search():
+    search = _make_search_config(product_name="iPad Pro", chip_options=["M5", "M4", "M3"], storage_gb_min=512)
+    scraper = FakeScraper(_make_fake_config(search))
+    listing = _make_listing(
+        title="Apple iPad Pro 13-inch M5 chip 16GB RAM 512GB",
+        price_usd=600.0,  # above the $500 iPad floor
+        chip="M5", ram_gb=16, storage_gb=512, screen_size=13.0,
+    )
+    assert scraper.passes_filters(listing) is True
+
+
+def test_passes_filters_rejects_below_ipad_min_price():
+    search = _make_search_config(product_name="iPad Pro", chip_options=["M5", "M4", "M3"], storage_gb_min=512)
+    scraper = FakeScraper(_make_fake_config(search))
+    listing = _make_listing(
+        title="Apple iPad Pro 13-inch M5 chip 16GB RAM 512GB",
+        price_usd=400.0,  # below the $500 iPad floor
+        chip="M5", ram_gb=16, storage_gb=512, screen_size=13.0,
+    )
+    assert scraper.passes_filters(listing) is False
+
+
+def test_min_price_usd_ipad():
+    handler = ElectronicsHandler()
+    assert handler.min_price_usd(_make_search_config(product_name="iPad Pro")) == 500
+
+
+def test_passes_filters_requires_cellular_when_configured():
+    search = _make_search_config(
+        product_name="iPad Pro",
+        chip_options=["M5", "M4", "M3"],
+        storage_gb_min=512,
+        cellular=True,
+    )
+    scraper = FakeScraper(_make_fake_config(search))
+    # Listing without cellular should be rejected
+    listing_wifi = _make_listing(
+        title="Apple iPad Pro 13-inch M5 chip 16GB RAM 512GB WiFi",
+        chip="M5", ram_gb=16, storage_gb=512, screen_size=13.0,
+    )
+    assert scraper.passes_filters(listing_wifi) is False
+    # Listing with cellular should be accepted
+    listing_cellular = _make_listing(
+        title="Apple iPad Pro 13-inch M5 chip 16GB RAM 512GB Cellular",
+        chip="M5", ram_gb=16, storage_gb=512, screen_size=13.0,
+    )
+    assert scraper.passes_filters(listing_cellular) is True
+    # Listing with 5G should also be accepted
+    listing_5g = _make_listing(
+        title="Apple iPad Pro 13-inch M5 chip 16GB RAM 512GB 5G",
+        chip="M5", ram_gb=16, storage_gb=512, screen_size=13.0,
+    )
+    assert scraper.passes_filters(listing_5g) is True

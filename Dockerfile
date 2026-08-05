@@ -40,8 +40,12 @@ WORKDIR /app
 # Docker's layer cache is reused on rebuilds that only touch scraper
 # logic (config.yaml, src/*.py churn far more often than the
 # dependency list does).
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md alembic.ini ./
 COPY src/ ./src/
+# migrations/ (Alembic revisions) -- src/database.py's run_migrations()
+# runs these automatically on every startup (see get_session()), so
+# they need to be present in the image, not just alembic.ini itself.
+COPY migrations/ ./migrations/
 
 RUN pip install --upgrade pip && \
     pip install -e .

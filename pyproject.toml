@@ -31,11 +31,11 @@ dependencies = [
 
     # ── Database ──────────────────────────────────────────────────
     "sqlalchemy>=2.0",         # Database ORM (lets us use SQLite or Postgres)
-    # NOTE: no Alembic here on purpose. Schema changes (e.g. adding
-    # cpu_cores/gpu_cores) are handled by a small ALTER-TABLE helper
-    # in src/database.py (_ensure_columns) instead — see that
-    # function's docstring for why. Alembic used to be listed as a
-    # dependency despite never being used anywhere in this project.
+    "alembic>=1.13",           # Schema migrations — see migrations/ and
+                                # src/database.py's run_migrations(). Replaces
+                                # the old hand-rolled ALTER-TABLE stopgap
+                                # (_ensure_columns) with a real, versioned
+                                # migration history.
 
     # ── Configuration ─────────────────────────────────────────────
     "pyyaml>=6.0",             # Reads config.yaml files
