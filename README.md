@@ -191,7 +191,7 @@ Both `deal_score_breakdown` and the Apple-refurb comparison fields are runtime-o
 | Price floor | $200 (Mac) / $100 (iPhone) | $50 |
 
 What this required beyond the handler itself:
-- `ScrapedListing` and the `listings` DB table gained three new optional columns (`size`, `brand`, `color`, migrated via `database.py`'s `_ensure_columns()` stopgap) — always `NULL`/`None` for electronics listings, only populated for an apparel search. Proves a single `listings` table can carry more than one category's specs, not just one handler swapped for another.
+- `ScrapedListing` and the `listings` DB table gained three new optional columns (`size`, `brand`, `color`, covered by Alembic's baseline migration — see `migrations/versions/0001_baseline_schema.py` and the "Database migrations" section below) — always `NULL`/`None` for electronics listings, only populated for an apparel search. Proves a single `listings` table can carry more than one category's specs, not just one handler swapped for another.
 - `SearchConfig` gained `sizes`, `preferred_brands`, `colors` (all optional, default empty — every existing `config.yaml` entry keeps working unchanged).
 - **Zero changes** to any of the 10 scraper files — `get_enabled_scrapers()` automatically includes the general marketplaces (eBay, Swappa, Mercari, OfferUp, BackMarket, Craigslist, Facebook — they build queries from `product_name` alone) and automatically skips the Apple-only storefronts (Apple Refurb, BestBuy, Newegg, Gazelle, already marked `applicable_product_types: [electronics]`), exactly as `product_types/base.py`'s "how to add a new product type" doc comment predicted.
 
@@ -216,6 +216,26 @@ See `.env.example` for the full list with descriptions. Locally these go in a `.
 | `craigslist.py` | Craigslist | Plain HTTP + HTML parsing; config-driven list of metro regions (`sites.craigslist.regions`, defaults to `["phoenix"]`) — loops over every configured region (e.g. AZ/NM/CA/UT/NV/CO metros) to cover multiple states in one run |
 | `offerup.py` | OfferUp | Playwright, login-gated stub |
 | `facebook.py` | Facebook Marketplace | Login-gated stub, inert until `FACEBOOK_SESSION_COOKIE` is set |
+
+## Database Migrations
+
+Schema changes are managed with [Alembic](https://alembic.sqlalchemy.org/), not manual `ALTER TABLE`s. Migrations live in `migrations/versions/` and run automatically — `src/database.py`'s `get_session()` calls `run_migrations()` (Alembic's `upgrade head`, invoked programmatically) every time the scraper starts, before any read/write happens. This means:
+
+- A fresh, empty database gets every table created from scratch.
+- An existing database (dev/staging/production) only has whatever's actually missing applied — already-current databases are a no-op.
+- There's nothing to remember to run manually — `python -m main` (locally, in Docker, or in CI) always leaves the database at the latest schema first.
+
+`migrations/versions/0001_baseline_schema.py` is the starting point: it reproduces exactly what this project's schema looked like right before Alembic was introduced (previously kept current by a hand-rolled `_ensure_columns()` ALTER-TABLE stopgap in `database.py`, now removed). It's written to be safe to run against a brand-new database, an already-fully-migrated one, or an old database still missing a few of the newer optional columns (`cpu_cores`/`gpu_cores`/`size`/`brand`/`color`) — see that file's docstring for why it guards every operation instead of calling `create_table`/`add_column` unconditionally.
+
+**Adding a new migration** (once there's an actual schema change to make): update the model in `src/database.py`, then generate a revision with
+
+```bash
+alembic revision --autogenerate -m "add some_column to listings"
+```
+
+Review the generated file in `migrations/versions/` before committing — autogenerate is a good first draft, not a guarantee (it can miss things like index/constraint renames). It'll be picked up automatically on the next `get_session()` call; no other wiring needed.
+
+**Manual/ops use** (inspecting or fixing a database by hand, outside a scraper run): the bare `alembic` CLI works too, e.g. `alembic upgrade head` or `alembic current`, using the default URL in `alembic.ini` (production's `data/listings.db`) unless overridden.
 
 ## Project Structure
 
@@ -246,6 +266,11 @@ tests/
 docs/
 ├── marketplace-setup.md       # how to configure login-gated marketplaces
 └── marketplace-catalog.md     # researched reference of 34 candidate marketplaces
+migrations/
+├── env.py                     # Alembic environment (points at src/database.py's models)
+└── versions/
+    └── 0001_baseline_schema.py  # baseline revision — see "Database Migrations" above
+alembic.ini                    # Alembic config (script_location, default/CLI database URL)
 Dockerfile                     # container image (alternative runtime, see "Running with Docker")
 docker-compose.yml             # local-dev container run, mounts data/ + config.yaml
 .dockerignore
