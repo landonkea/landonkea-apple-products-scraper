@@ -53,6 +53,13 @@ data/watchlist.staging.json
 .env
 *.env.local
 
+# ── Local config overrides (not secrets, but personally identifying) ──
+# config.local.yaml overrides config.yaml at runtime (see
+# load_config() in src/config.py and config.local.yaml.example) --
+# e.g. which real Craigslist metro regions to search, which reveals
+# approximate location. Never commit the real file, only the .example.
+config.local.yaml
+
 # ── Distribution builds ───────────────────────────────────────
 dist/
 build/

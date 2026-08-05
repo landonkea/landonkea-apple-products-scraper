@@ -100,6 +100,26 @@ jobs:
           path: test-results/latest.md
           retention-days: 30
 
+      # 4c. Write config.local.yaml from a GitHub Secret before the
+      #     scraper runs — see config.local.yaml.example and
+      #     load_config()'s docstring in src/config.py. This is how
+      #     production searches the real Craigslist regions without
+      #     that (personally identifying, though not a secret in the
+      #     security sense) list ever being committed to this public
+      #     repo. `|| true` on the secret check means a run with the
+      #     secret unset just falls back to config.yaml's placeholder
+      #     region — never a hard failure.
+      - name: Write local config overrides
+        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
+        env:
+          CRAIGSLIST_REGIONS_YAML: ${{ secrets.CRAIGSLIST_REGIONS_YAML }}
+        run: |
+          if [ -n "$CRAIGSLIST_REGIONS_YAML" ]; then
+            echo "$CRAIGSLIST_REGIONS_YAML" > config.local.yaml
+          else
+            echo "CRAIGSLIST_REGIONS_YAML secret not set — using config.yaml's placeholder region."
+          fi
+
       # 5. Run the scraper
       - name: Run scraper
         env:

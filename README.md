@@ -1,10 +1,10 @@
 # landonkea-apple-products-scraper
 
-Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box, Gazelle, Newegg, and Craigslist every 6 hours, alerting on great-priced deals for MacBook Pro (last 3 chip generations) and iPhone Pro Max (last 3 generations). OfferUp and Facebook Marketplace are wired in as login-gated stubs — they stay inert (zero network calls) until their session-cookie secrets are configured.
+Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box, Gazelle, Newegg, and Craigslist on a schedule (see [Run Schedule](#run-schedule) — at least once daily, optionally more often), alerting on great-priced deals for MacBook Pro (last 3 chip generations), iPhone Pro Max (last 3 generations), and iPad Pro (last 3 chip generations, WiFi + Cellular). OfferUp and Facebook Marketplace are wired in as login-gated stubs — they stay inert (zero network calls) until their session-cookie secrets are configured.
 
 ## How It Works
 
-1. **Scheduled scraping** — runs every 6 hours via GitHub Actions cron (`.github/workflows/scrape.yml`), or manually via `workflow_dispatch`.
+1. **Scheduled scraping** — runs via GitHub Actions (`.github/workflows/scrape.yml`), at least once daily and optionally more often (see [Run Schedule](#run-schedule)), or manually via `workflow_dispatch`.
 2. **Multi-site** — 10 scraper modules (`src/scrapers/`), each handling a different marketplace with its own anti-bot strategy (plain HTTP, Playwright + stealth, or discover-then-fetch for JSON-embedded pages).
 3. **Pluggable product types** — matching/filtering/scoring logic isn't hardcoded to Apple hardware. `src/product_types/` defines a `ProductTypeHandler` interface; `electronics.py` is the reference implementation (MacBook Pro/iPhone). `apparel.py` is a second, structurally different implementation (boots — size/brand/color instead of chip/RAM/storage) proving the interface actually generalizes; it's registered but not wired into any live `searches:` entry in `config.yaml` (see the commented-out example there), so it has zero effect on production alerts. Adding a real new category means writing one new handler file plus a `searches:` entry, not touching every scraper.
 4. **Price analysis** — `src/price_analyzer.py` scores listings against configured "great deal"/"good deal" thresholds, with a universal suspicious-price-outlier check plus product-type-specific bonuses delegated to the active handler.
@@ -52,9 +52,9 @@ ENVIRONMENT=dev PYTHONPATH=src python3 -m main --dry-run
 An alternative way to run the scraper — for local dev, or for
 self-hosting somewhere that isn't GitHub Actions. **This is
 additive, not a replacement**: the primary production runtime is
-still the GitHub Actions cron workflow (`.github/workflows/scrape.yml`),
-running every 6 hours exactly as described above. Nothing about that
-workflow changes because a Docker image also exists.
+still the GitHub Actions workflow (`.github/workflows/scrape.yml`),
+running on the schedule described in [Run Schedule](#run-schedule).
+Nothing about that workflow changes because a Docker image also exists.
 
 The image installs this project's dependencies plus Playwright's
 Chromium binary (`playwright install --with-deps chromium`) — needed

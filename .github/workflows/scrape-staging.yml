@@ -96,6 +96,18 @@ jobs:
           path: test-results/latest.md
           retention-days: 30
 
+      # Same as scrape.yml's "Write local config overrides" step —
+      # see that file's comment and config.local.yaml.example.
+      - name: Write local config overrides
+        env:
+          CRAIGSLIST_REGIONS_YAML: ${{ secrets.CRAIGSLIST_REGIONS_YAML }}
+        run: |
+          if [ -n "$CRAIGSLIST_REGIONS_YAML" ]; then
+            echo "$CRAIGSLIST_REGIONS_YAML" > config.local.yaml
+          else
+            echo "CRAIGSLIST_REGIONS_YAML secret not set — using config.yaml's placeholder region."
+          fi
+
       - name: Run scraper
         env:
           # The only line that differs functionally from scrape.yml's
