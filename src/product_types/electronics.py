@@ -214,6 +214,31 @@ MINIMUM_IPHONE_PRICE_USD = 100
 # Minimum price for a real computer (anything cheaper is an accessory/part)
 MINIMUM_PRICE_USD = 200
 
+# iPad-specific keywords for filtering accessories
+IPAD_ACCESSORY_KEYWORDS = [
+    "case", "cover", "skin", "sleeve", "bag", "pouch", "shell",
+    "screen protector", "tempered glass", "privacy glass",
+    "charger", "charging cable", "cable", "adapter", "power bank",
+    "keyboard", "keyboard case", "smart keyboard", "magic keyboard",
+    "apple pencil", "stylus", "pen", "holder", "stand", "mount",
+    "car mount", "arm", "tray", "dock", "docking station",
+    "hub", "adapter", "converter", "dongle",
+    "repair", "replacement", "parts", "for parts", "not working",
+    "broken", "damaged", "for repair", "as-is", "as is",
+    "screen only", "cracked", "water damage",
+    "defective", "faulty", "does not work", "doesn't work",
+    "lcd", "digitizer", "flex cable", "ribbon cable",
+    "logic board", "motherboard", "battery",
+]
+
+IPAD_BAD_KEYWORDS = [
+    "locked", "icloud", "activation lock",
+    "for parts", "not working", "broken", "cracked", "damaged",
+    "water damage", "for repair", "as is", "as-is", "parts only",
+    "repair needed", "stolen", "blacklisted",
+    "defective", "faulty", "does not work", "doesn't work",
+]
+
 
 def is_likely_macbook_pro(title: str, condition: Optional[str] = None) -> bool:
     """
@@ -321,6 +346,61 @@ def is_likely_iphone(title: str, condition: Optional[str] = None) -> bool:
     return True
 
 
+def is_likely_ipad_pro(title: str, condition: Optional[str] = None) -> bool:
+    """
+    Check if a title is likely a real iPad Pro (not an accessory).
+
+    WHAT: Filters out cases, keyboards, Apple Pencils, screen
+    protectors, etc. that mention "iPad Pro" but aren't actual tablets.
+    Also rejects locked/broken/parts-only listings.
+    HOW: Rejects titles (and the marketplace's condition label, if
+    given) containing accessory or bad-condition keywords, then
+    requires at least one hardware spec: chip (M1-M5), screen size,
+    RAM, or storage.
+    WHY: iPad accessory titles often contain "iPad Pro" because that's
+    the product they're compatible with, similar to iPhone accessories.
+    Real iPad Pro listings almost always state at least one spec.
+
+    Args:
+        title: The listing title to check.
+        condition: The marketplace's condition label, if available.
+    """
+    title_lower = title.lower()
+    condition_lower = (condition or "").lower()
+
+    # Must be an iPad Pro (not just iPad or iPad Air)
+    if "ipad pro" not in title_lower:
+        return False
+
+    # Exclude accessories/red-flag condition by keyword
+    for kw in IPAD_ACCESSORY_KEYWORDS:
+        if kw in title_lower or kw in condition_lower:
+            return False
+
+    # Check for bad condition keywords
+    locked = "locked" in title_lower and "unlocked" not in title_lower
+    for kw in IPAD_BAD_KEYWORDS:
+        kw_lower = kw.lower()
+        if kw_lower == "locked":
+            continue
+        if kw_lower in title_lower or kw_lower in condition_lower:
+            return False
+    if locked:
+        return False
+
+    # Must have at least one hardware indicator
+    has_chip = bool(re.search(r'M\d{1,2}\s*(?:Pro|Max|Ultra)?', title, re.IGNORECASE))
+    has_screen = bool(re.search(r'\d+(?:\.\d+)?[\s-]*inch', title, re.IGNORECASE))
+    has_screen = has_screen or bool(re.search(r'\d+(?:\.\d+)?"', title))
+    has_ram = bool(re.search(r'\d+\s*GB\s*(?:RAM|Memory|Unified)', title, re.IGNORECASE))
+    has_storage = bool(re.search(r'\d+\s*(?:TB|GB)\s*(?:SSD|Storage)', title, re.IGNORECASE))
+
+    if not (has_chip or has_screen or has_ram or has_storage):
+        return False
+
+    return True
+
+
 class ElectronicsHandler(ProductTypeHandler):
     """Apple hardware (MacBook Pro / iPhone) — the reference ProductTypeHandler."""
 
@@ -341,6 +421,8 @@ class ElectronicsHandler(ProductTypeHandler):
             return is_likely_macbook_pro(title, condition)
         elif "iphone" in product_lower:
             return is_likely_iphone(title, condition)
+        elif "ipad" in product_lower:
+            return is_likely_ipad_pro(title, condition)
         return True
 
     def passes_type_filters(self, listing, search) -> bool:
@@ -401,6 +483,13 @@ class ElectronicsHandler(ProductTypeHandler):
             if listing.storage_gb > s.storage_gb_max:
                 return False
 
+        # Check cellular requirement (for iPad Pro WiFi + Cellular)
+        if s.cellular:
+            # Title must mention cellular, 5G, or LTE
+            has_cellular = bool(re.search(r'cellular|5g|lte', title_lower))
+            if not has_cellular:
+                return False
+
         return True
 
     def score_bonuses(self, listing, search) -> float:
@@ -455,4 +544,6 @@ class ElectronicsHandler(ProductTypeHandler):
     def min_price_usd(self, search) -> float:
         if "iphone" in search.product_name.lower():
             return MINIMUM_IPHONE_PRICE_USD
+        elif "ipad" in search.product_name.lower():
+            return 500  # iPad Pro minimum price
         return MINIMUM_PRICE_USD

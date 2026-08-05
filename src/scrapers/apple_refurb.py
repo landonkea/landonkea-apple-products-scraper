@@ -30,34 +30,37 @@ class AppleRefurbScraper(BaseScraper):
     
     def scrape(self) -> list[ScrapedListing]:
         """
-        Scrape Apple's refurbished store for matching MacBook Pros.
+        Scrape Apple's refurbished store for matching products.
         
         Fetches both the 14-inch and 16-inch MacBook Pro refurb
-        pages, extracts the JSON bootstrap, and filters for actual
-        MacBook Pro listings.
+        pages, or iPad Pro pages, or iPhone pages, extracts the JSON
+        bootstrap, and filters for actual matching listings.
         
         Returns:
             A list of ScrapedListing objects.
         """
         found: list[ScrapedListing] = []
         
-        screen_sizes = self.config.search.screen_sizes
-        if screen_sizes:
+        product = self.config.search.product_name
+        
+        if "macbook" in product.lower():
+            # MacBook Pro has specific size-based pages
             urls = [
                 "https://www.apple.com/shop/refurbished/mac/14-inch-macbook-pro",
                 "https://www.apple.com/shop/refurbished/mac/16-inch-macbook-pro",
             ]
+        elif "iphone" in product.lower():
+            # Apple's refurb store has no per-model iPhone page
+            # (e.g. "iphone-17-pro-max" 404s) — only the category
+            # root works. passes_filters()'s model_keywords check
+            # narrows results down to the generations we want.
+            urls = ["https://www.apple.com/shop/refurbished/iphone"]
+        elif "ipad" in product.lower():
+            # iPad Pro has a dedicated refurb page
+            urls = ["https://www.apple.com/shop/refurbished/ipad/ipad-pro"]
         else:
-            product = self.config.search.product_name
-            if "iphone" in product.lower():
-                # Apple's refurb store has no per-model iPhone page
-                # (e.g. "iphone-17-pro-max" 404s) — only the category
-                # root works. passes_filters()'s model_keywords check
-                # narrows results down to the generations we want.
-                urls = ["https://www.apple.com/shop/refurbished/iphone"]
-            else:
-                slug = product.lower().replace(" ", "-")
-                urls = [f"https://www.apple.com/shop/refurbished/{slug}"]
+            slug = product.lower().replace(" ", "-")
+            urls = [f"https://www.apple.com/shop/refurbished/{slug}"]
         
         # Use a set of listing IDs we've already seen so we don't
         # add the same product twice (both pages return ALL products)
@@ -106,14 +109,21 @@ class AppleRefurbScraper(BaseScraper):
                 tiles = data.get("tiles", [])
                 for tile in tiles:
                     try:
-                        # Step 6: filter for MacBook Pro listings only
-                        # Apple uses "refurbClearModel": "macbookpro"
-                        # to identify MacBook Pro items in the grid
-                        if screen_sizes:
-                            filters = tile.get("filters", {})
-                            dimensions = filters.get("dimensions", {})
-                            model = dimensions.get("refurbClearModel", "")
+                        # Step 6: filter for matching product type
+                        # Apple uses "refurbClearModel" to identify product types
+                        filters = tile.get("filters", {})
+                        dimensions = filters.get("dimensions", {})
+                        model = dimensions.get("refurbClearModel", "")
+                        
+                        # Filter based on product type
+                        if "macbook" in product.lower():
                             if model != "macbookpro":
+                                continue
+                        elif "ipad" in product.lower():
+                            if model != "ipadpro":
+                                continue
+                        elif "iphone" in product.lower():
+                            if model != "iphone":
                                 continue
                         
                         listing = self._parse_tile(tile)
@@ -153,10 +163,20 @@ class AppleRefurbScraper(BaseScraper):
         # Apple titles look like:
         # "Refurbished 14-inch MacBook Pro Apple M5 Max chip with
         #  18‑Core CPU and 40‑Core GPU - Space Black"
+        # or for iPad Pro:
+        # "Refurbished 13-inch iPad Pro Apple M5 chip with
+        #  8‑Core CPU and 10‑Core GPU - Space Black"
         title = tile.get("title", "")
         if not title:
             return None
-        if self.config.search.screen_sizes and "MacBook Pro" not in title:
+        
+        # Filter by product type in title
+        product = self.config.search.product_name
+        if "macbook" in product.lower() and "MacBook Pro" not in title:
+            return None
+        elif "ipad" in product.lower() and "iPad Pro" not in title:
+            return None
+        elif "iphone" in product.lower() and "iPhone" not in title:
             return None
         
         # ── Price ───────────────────────────────────────────────
