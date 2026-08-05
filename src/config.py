@@ -68,6 +68,11 @@ class SearchConfig:
     # changes to keep working exactly as before. A future category
     # (e.g. "apparel") sets this to its own registered type name.
     product_type: str = "electronics"
+    # ── Cellular requirement ───────────────────────────────────
+    # When True, only listings mentioning cellular/5G/LTE are
+    # accepted. Used for iPad Pro WiFi + Cellular models.
+    # Defaults to False so existing config.yaml entries keep working.
+    cellular: bool = False
     # ── Generation-window fields (set when a search opts into a
     # `generation_family` — see _expand_generation() below).  Left
     # at their defaults for manually-configured searches, which
@@ -372,13 +377,18 @@ def _expand_generation(search_dict: dict, generations_raw: dict) -> dict:
 
     expanded = dict(search_dict)
 
-    if tier in ("Pro", "Max", "Ultra"):
-        # Chip-based family (e.g. Mac "Max" chips) → M5 Max, M4 Max, M3 Max
-        chip_options = [f"M{n} {tier}" for n in generation_numbers]
+    if tier in ("Pro", "Max", "Ultra") or tier == "":
+        # Chip-based family (e.g. Mac "Max" chips → M5 Max, M4 Max, M3 Max)
+        # or base M chips (e.g. iPad Pro → M5, M4, M3)
+        if tier:
+            chip_options = [f"M{n} {tier}" for n in generation_numbers]
+        else:
+            # Empty tier means base M chips (M5, M4, M3)
+            chip_options = [f"M{n}" for n in generation_numbers]
         expanded["chip_options"] = chip_options
         expanded["chip"] = chip_options[0]  # newest, for code that reads .chip directly (e.g. offerup.py)
         expanded["chip_generation_map"] = {
-            f"M{n} {tier}": n for n in generation_numbers
+            chip: n for chip, n in zip(chip_options, generation_numbers)
         }
         raw_core_counts = family.get("core_counts", {})
         expanded["core_count_reference"] = {
@@ -394,18 +404,54 @@ def _expand_generation(search_dict: dict, generations_raw: dict) -> dict:
     return expanded
 
 
-def load_config(path: str = "config.yaml") -> Config:
+def _deep_merge(base: dict, override: dict) -> dict:
+    """
+    Recursively merge `override` onto `base`, returning a new dict.
+
+    Dicts merge key-by-key (recursing into nested dicts). Any other
+    value in `override` (including lists) replaces the base value
+    entirely — e.g. a `regions` list in the override doesn't get
+    appended to config.yaml's list, it replaces it outright. This
+    keeps the semantics simple and predictable: "whatever this key
+    is in the local override, that's what it is."
+    """
+    merged = dict(base)
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config(path: str = "config.yaml", local_path: str = "config.local.yaml") -> Config:
     """
     Read config.yaml and return a typed Config object.
-    
+
     Args:
         path: Path to the YAML config file (default: "config.yaml").
-    
+        local_path: Path to an optional local override file (default:
+            "config.local.yaml"). If present, its contents are deep-
+            merged on top of `path`'s — see _deep_merge(). This exists
+            so personally-identifying-but-not-secret settings (e.g.
+            which real Craigslist metro regions to search) don't have
+            to live in the tracked, possibly-public config.yaml. This
+            file is gitignored; see config.local.yaml.example for the
+            format. In CI, .github/workflows/scrape*.yml generate this
+            file from a GitHub Secret before the scraper runs (see
+            those workflows' "Write local config overrides" step) —
+            it never touches the repo.
+
     Returns:
         A Config dataclass with all settings.
     """
     with open(path, "r") as f:
         raw = yaml.safe_load(f)
+
+    if os.path.exists(local_path):
+        with open(local_path, "r") as f:
+            local_raw = yaml.safe_load(f) or {}
+        raw = _deep_merge(raw, local_raw)
 
     # Determine environment once, up front, so it can be used both to
     # scope the database URL below and to populate Config.environment.
@@ -446,6 +492,7 @@ def load_config(path: str = "config.yaml") -> Config:
             sizes=s.get("sizes", []),
             preferred_brands=s.get("preferred_brands", []),
             colors=s.get("colors", []),
+            cellular=s.get("cellular", False),
         ))
         if s.get("generation_family"):
             family_name = s["generation_family"]
