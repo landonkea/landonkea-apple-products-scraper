@@ -32,12 +32,22 @@ concurrency:
 
 # ── When to run ──────────────────────────────────────────────────
 on:
-  # ── Cron schedule: every 6 hours ─────────────────────────────
-  # This runs at midnight, 6am, noon, and 6pm UTC.
+  # ── Cron trigger: fires every hour ───────────────────────────
+  # GitHub Actions cron triggers are static -- they can't read a
+  # runtime config file to decide their own schedule. So this fires
+  # every hour, and the very first job step below decides -- by
+  # reading config.yaml's `schedule:` section -- whether THIS hour
+  # is one that should actually scrape. Every other hour exits in a
+  # few seconds without installing anything. This is what makes the
+  # schedule "dynamic": editing config.yaml's hour list changes real
+  # behavior on the next firing, no edit to this file needed.
   schedule:
-    - cron: "0 */6 * * *"    # Every 6 hours
-  
+    - cron: "0 * * * *"
+
   # ── Manual trigger: allows running from GitHub UI ────────────
+  # Always runs for real, regardless of the current hour or
+  # config.yaml's schedule -- see the "Check if this hour should
+  # run" step's condition.
   workflow_dispatch:
 
 # ── Permissions ─────────────────────────────────────────────────
@@ -61,23 +71,69 @@ jobs:
         with:
           # Fetch full history so we can commit changes
           fetch-depth: 0
-      
+
+      # 1b. This job's trigger fires every hour (see the `on:` block
+      #     above). Before installing anything, check config.yaml's
+      #     `schedule:` section to decide whether THIS hour is one
+      #     that should actually scrape -- every other hour exits
+      #     right here, in a few seconds, using no real minutes.
+      #     Manual runs (workflow_dispatch) always proceed regardless
+      #     of the hour -- see this step's `if:` below and each later
+      #     step's `if:`.
+      - name: Check if this hour should run
+        id: schedule_check
+        if: github.event_name == 'schedule'
+        run: |
+          python3 - <<'PYEOF'
+          import ast
+          import os
+          import re
+          from datetime import datetime, timezone
+
+          with open("config.yaml") as f:
+              text = f.read()
+
+          def extract_hours(key: str) -> list[int]:
+              match = re.search(rf"^\s*{key}:\s*(\[[^\]]*\])", text, re.MULTILINE)
+              if not match:
+                  raise ValueError(f"config.yaml's schedule: section is missing `{key}:` — "
+                                    f"see README's 'Run Schedule' section for the expected format.")
+              return ast.literal_eval(match.group(1))
+
+          guaranteed = extract_hours("guaranteed_hours_utc")
+          additional = extract_hours("additional_hours_utc")
+          enabled_hours = set(guaranteed) | set(additional)
+
+          current_hour = datetime.now(timezone.utc).hour
+          should_run = current_hour in enabled_hours
+
+          print(f"Current UTC hour: {current_hour}")
+          print(f"Enabled hours (guaranteed + additional): {sorted(enabled_hours)}")
+          print(f"Should run this hour: {should_run}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"should_run={'true' if should_run else 'false'}\n")
+          PYEOF
+
       # 2. Set up Python
       - name: Setup Python
+        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"    # Caches pip downloads for faster runs
-      
+
       # 3. Install dependencies
       - name: Install dependencies
+        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         run: |
           pip install -e .
           pip install -e ".[dev]"
           pip install playwright-stealth
-      
+
       # 4. Install Playwright browsers (needed for OfferUp scraper)
       - name: Install Playwright browsers
+        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         run: |
           playwright install --with-deps chromium
 
@@ -88,12 +144,13 @@ jobs:
       #     failure here never blocks the scheduled scraper run below —
       #     this step's whole purpose is visibility, not gating.
       - name: Run tests and generate report
+        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         continue-on-error: true
         run: |
           ./scripts/run_tests_with_report.sh
 
       - name: Upload test report
-        if: always()
+        if: always() && (github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: test-results-production
@@ -102,6 +159,7 @@ jobs:
 
       # 5. Run the scraper
       - name: Run scraper
+        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         env:
           # Explicitly declare that this is the real production run —
           # the only place that should ever post to the live Discord
@@ -122,6 +180,7 @@ jobs:
       #    This preserves seen listings and price history between runs,
       #    and publishes the latest trend data to the GitHub Pages site.
       - name: Commit database and chart data updates
+        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         run: |
           git config user.name "Apple Product Scraper Bot"
           git config user.email "bot@landonkea-apple-products-scraper"
