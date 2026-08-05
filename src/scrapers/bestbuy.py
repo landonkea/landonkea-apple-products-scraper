@@ -225,8 +225,15 @@ class BestBuyScraper(BaseScraper):
         if not title_el:
             return None
         title = title_el.get_text(strip=True)
-        # Only process MacBook listings.
-        if not title or "MacBook" not in title:
+        if not title:
+            return None
+        # Only process MacBook or iPad listings based on search config.
+        product = self.config.search.product_name.lower()
+        if "macbook" in product and "MacBook" not in title:
+            return None
+        elif "ipad" in product and "iPad" not in title:
+            return None
+        elif "iphone" in product and "iPhone" not in title:
             return None
 
         # Extract the product URL.

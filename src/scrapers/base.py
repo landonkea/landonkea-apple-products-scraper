@@ -35,9 +35,12 @@ from product_types.electronics import (  # noqa: F401
     extract_core_counts,
     is_likely_macbook_pro,
     is_likely_iphone,
+    is_likely_ipad_pro,
     ACCESSORY_KEYWORDS,
     IPHONE_ACCESSORY_KEYWORDS,
     IPHONE_BAD_KEYWORDS,
+    IPAD_ACCESSORY_KEYWORDS,
+    IPAD_BAD_KEYWORDS,
     MINIMUM_PRICE_USD,
     MINIMUM_IPHONE_PRICE_USD,
 )
