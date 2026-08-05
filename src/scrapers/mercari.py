@@ -159,8 +159,15 @@ class MercariScraper(BaseScraper):
             return None
 
         title = title_elem.get_text(strip=True)
-        # Only process MacBook listings (skip phone cases, accessories, etc.).
-        if not title or "MacBook" not in title:
+        if not title:
+            return None
+        # Only process MacBook, iPad, or iPhone listings based on search config.
+        product = self.config.search.product_name.lower()
+        if "macbook" in product and "MacBook" not in title:
+            return None
+        elif "ipad" in product and "iPad" not in title:
+            return None
+        elif "iphone" in product and "iPhone" not in title:
             return None
 
         # Extract the price from the number span.
