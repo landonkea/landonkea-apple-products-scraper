@@ -13,6 +13,19 @@
 # being searched for has a chip and RAM" — it just asks whichever
 # ProductTypeHandler is active.
 #
+# THIS PLAN HAS BEEN VALIDATED: src/product_types/apparel.py (boots)
+# is a real second implementation, following exactly the steps below.
+# It's registered in PRODUCT_TYPES but has no active `searches:` entry
+# in config.yaml (see the commented-out example there and this file's
+# module docstring) — it stays inert in production, but every layer
+# of the plan below (steps 1-5) is exercised by
+# tests/test_product_types_apparel.py, including a real
+# get_enabled_scrapers() check proving step 4 needed zero code changes
+# (the `applicable_product_types: [electronics]` sites were already
+# pre-configured for exactly this scenario). Use apparel.py as the
+# concrete reference alongside electronics.py when building a THIRD
+# product type.
+#
 # HOW TO ADD A NEW PRODUCT TYPE (e.g. "apparel" for boots):
 #   1. Create src/product_types/apparel.py implementing every method
 #      below (use electronics.py as a structural reference — same

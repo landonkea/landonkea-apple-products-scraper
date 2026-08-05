@@ -166,6 +166,9 @@ def listing_to_db(db, listing: ScrapedListing,
         existing.chip = listing.chip
         existing.cpu_cores = listing.cpu_cores
         existing.gpu_cores = listing.gpu_cores
+        existing.size = listing.size
+        existing.brand = listing.brand
+        existing.color = listing.color
         existing.last_seen_at = datetime.now(timezone.utc)
         existing.is_active = True
         db_obj = existing
@@ -184,6 +187,9 @@ def listing_to_db(db, listing: ScrapedListing,
             chip=listing.chip,
             cpu_cores=listing.cpu_cores,
             gpu_cores=listing.gpu_cores,
+            size=listing.size,
+            brand=listing.brand,
+            color=listing.color,
         )
         db.add(db_obj)
         # Flush so db_obj.id is populated before record_price_history
