@@ -347,10 +347,24 @@ alerts:
     enabled: true
 
 # ── RUN SCHEDULE ───────────────────────────────────────────────────
-# How often to run the scraper.
-# This is a cron expression.  "0 */6 * * *" = every 6 hours.
+# .github/workflows/scrape.yml's trigger fires every hour, but each
+# firing only does real work if the current UTC hour is listed below
+# -- everything else exits in a few seconds (see that workflow's
+# "Check if this hour should run" step). Edit this list any time; it
+# takes effect on the next hourly firing, no workflow/code change or
+# redeploy needed.
+#
+# guaranteed_hours_utc: hours that always run. 13 = 6am America/Phoenix
+# (UTC-7 year-round -- Arizona doesn't observe DST, so this doesn't
+# drift twice a year the way most US timezones would).
+#
+# additional_hours_utc: extra run hours beyond the guaranteed ones,
+# e.g. [1, 7, 19] for four runs/day spread out. Empty by default --
+# add hours here if you want fresher data than once a day and are
+# fine with the added GitHub Actions usage.
 schedule:
-  cron: "0 */6 * * *"
+  guaranteed_hours_utc: [13]
+  additional_hours_utc: []
 
 # ── DATABASE ───────────────────────────────────────────────────────
 database:
