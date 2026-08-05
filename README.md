@@ -119,7 +119,7 @@ Edit `config.yaml` to set:
 - **`price_drop`** — price-drop alert thresholds (`enabled`, `min_drop_percent`, `min_drop_usd`) — see [Price-Drop Alerts](#price-drop-alerts)
 - **`sites`** — which marketplaces are enabled, and which `applicable_product_types` each one supports
 - **`alerts`** — Discord toggle
-- **`schedule`** — cron expression for GitHub Actions
+- **`schedule`** — which UTC hours the production cron actually scrapes — see [Run Schedule](#run-schedule)
 
 ## Price-Drop Alerts
 
@@ -217,7 +217,27 @@ See `.env.example` for the full list with descriptions. Locally these go in a `.
 | `offerup.py` | OfferUp | Playwright, login-gated stub |
 | `facebook.py` | Facebook Marketplace | Login-gated stub, inert until `FACEBOOK_SESSION_COOKIE` is set |
 
+## Run Schedule
+
+**In plain terms:** the production scraper always runs once a day at 6am America/Phoenix, and can optionally run more often — you control that by editing a list of hours in `config.yaml`, without touching any workflow or code.
+
+GitHub Actions' cron triggers are static — they live in `.github/workflows/scrape.yml` and can't read a config file to decide their own schedule at the moment GitHub's scheduler evaluates them. So instead, that workflow's trigger fires every hour, and its very first step (`Check if this hour should run`) reads `config.yaml`'s `schedule:` section and decides whether *this particular hour* should actually scrape:
+
+```yaml
+schedule:
+  guaranteed_hours_utc: [13]      # 13 UTC = 6am America/Phoenix (no DST in AZ)
+  additional_hours_utc: []        # e.g. [1, 7, 19] for four runs/day
+```
+
+If the current UTC hour isn't in `guaranteed_hours_utc` or `additional_hours_utc`, every remaining step in that run is skipped — no dependencies installed, no scrape, done in a few seconds. This means:
+
+- **Changing the schedule is a `config.yaml` edit, not a workflow edit.** Add an hour to `additional_hours_utc`, push, and it takes effect on the next hourly firing.
+- **Manual runs** (`workflow_dispatch`, the "Run workflow" button in the Actions tab) always scrape for real, regardless of the current hour or this config — see each step's `if:` condition in `scrape.yml`.
+- Running more often than once a day uses more GitHub Actions minutes. On a public repo (see below) that's free either way; on a private repo it counts against the account's Actions quota.
+
 ## Database Migrations
+
+**In plain terms:** the database's structure (what tables and columns exist) needs to change sometimes as features get added. Alembic tracks those structural changes as an ordered, version-controlled history — like a changelog for the database schema — instead of guessing at runtime whether a column already exists. It runs automatically; nothing to remember to do by hand.
 
 Schema changes are managed with [Alembic](https://alembic.sqlalchemy.org/), not manual `ALTER TABLE`s. Migrations live in `migrations/versions/` and run automatically — `src/database.py`'s `get_session()` calls `run_migrations()` (Alembic's `upgrade head`, invoked programmatically) every time the scraper starts, before any read/write happens. This means:
 
