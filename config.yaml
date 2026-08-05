@@ -85,6 +85,29 @@ searches:
     location: ~
     results_per_size: 30
 
+  # ── EXAMPLE: a second, non-electronics product_type ────────────
+  # Commented out on purpose -- this repo's owner only wants their
+  # Discord channel alerting on MacBook Pro/iPhone deals, so this
+  # stays inert rather than live in production. It exists to show
+  # the pluggable architecture actually works for a category with a
+  # completely different field set (size/brand/color, no chip/RAM/
+  # storage at all) -- see src/product_types/apparel.py and
+  # tests/test_product_types_apparel.py for the handler this drives
+  # and proof it works end to end without this entry being active.
+  # Uncomment to actually search for boots on the general
+  # marketplaces (eBay, Swappa, Mercari, OfferUp, BackMarket,
+  # Craigslist, Facebook) -- they need zero code changes since they
+  # already build queries from product_name alone. Apple-only sites
+  # (Apple Refurb, BestBuy, Newegg, Gazelle) automatically sit this
+  # out via their `applicable_product_types: [electronics]` below.
+  # - product_name: "Red Wing Iron Ranger"
+  #   product_type: apparel
+  #   sizes: [10, 10.5, 11]
+  #   preferred_brands: ["Red Wing", "Wolverine"]
+  #   colors: ["black", "brown", "oxblood"]
+  #   location: ~
+  #   results_per_size: 20
+
 # ── PRICE THRESHOLDS ───────────────────────────────────────────────
 # These determine what counts as a "deal worth alerting about".
 # The scraper will compare every listing against these numbers.

@@ -100,6 +100,22 @@ class Listing(Base):
     gpu_cores = Column(Integer, nullable=True)
     # GPU core count parsed from title, e.g. 40.
 
+    # ── Apparel-specific specs (see src/product_types/apparel.py) ──
+    # Always NULL for electronics listings -- only populated when the
+    # active search's product_type is "apparel". Proves the same
+    # "listings" table (not a per-category table) can carry a second,
+    # structurally different product type's specs alongside chip/RAM/
+    # storage, same idea as cpu_cores/gpu_cores being optional and
+    # unused by earlier rows.
+    size = Column(Float, nullable=True)
+    # US size, e.g. 10.5.
+
+    brand = Column(String(100), nullable=True)
+    # e.g. "Red Wing", "Wolverine".
+
+    color = Column(String(50), nullable=True)
+    # e.g. "black", "brown".
+
     # ── Deal scoring (computed) ───────────────────────────────
     deal_score = Column(Float, nullable=True)
     # A score from 0-100 where higher = better deal.
@@ -337,6 +353,9 @@ def _ensure_columns(engine):
     new_columns = {
         "cpu_cores": "INTEGER",
         "gpu_cores": "INTEGER",
+        "size": "FLOAT",
+        "brand": "VARCHAR(100)",
+        "color": "VARCHAR(50)",
     }
 
     with engine.begin() as conn:

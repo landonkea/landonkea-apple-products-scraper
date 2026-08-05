@@ -6,7 +6,7 @@ Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box
 
 1. **Scheduled scraping** — runs every 6 hours via GitHub Actions cron (`.github/workflows/scrape.yml`), or manually via `workflow_dispatch`.
 2. **Multi-site** — 10 scraper modules (`src/scrapers/`), each handling a different marketplace with its own anti-bot strategy (plain HTTP, Playwright + stealth, or discover-then-fetch for JSON-embedded pages).
-3. **Pluggable product types** — matching/filtering/scoring logic isn't hardcoded to Apple hardware. `src/product_types/` defines a `ProductTypeHandler` interface; `electronics.py` is the first (and currently only) implementation. Adding a new category later (e.g. a different product line) means writing one new handler file, not touching every scraper.
+3. **Pluggable product types** — matching/filtering/scoring logic isn't hardcoded to Apple hardware. `src/product_types/` defines a `ProductTypeHandler` interface; `electronics.py` is the reference implementation (MacBook Pro/iPhone). `apparel.py` is a second, structurally different implementation (boots — size/brand/color instead of chip/RAM/storage) proving the interface actually generalizes; it's registered but not wired into any live `searches:` entry in `config.yaml` (see the commented-out example there), so it has zero effect on production alerts. Adding a real new category means writing one new handler file plus a `searches:` entry, not touching every scraper.
 4. **Price analysis** — `src/price_analyzer.py` scores listings against configured "great deal"/"good deal" thresholds, with a universal suspicious-price-outlier check plus product-type-specific bonuses delegated to the active handler.
 5. **Alerts** — sends Discord webhook notifications (`src/notifier.py`) when a deal is found; production and non-production runs post to separate webhooks so test runs never spam the real channel.
 6. **Deduplication & retention** — SQLite database (`src/database.py`) with upsert logic prevents duplicate alerts; listings inactive for 72h are soft-expired, and listings inactive for 180+ days are hard-deleted (`prune_old_inactive_listings`, which also cleans up their price history).
@@ -179,6 +179,24 @@ Two of those components are new:
 
 Both `deal_score_breakdown` and the Apple-refurb comparison fields are runtime-only attributes on `Listing` (not database columns) — cheap to recompute every run from data already in the current batch, so there's no schema migration and nothing to go stale.
 
+## Second Product Type: Apparel (Architecture Proof)
+
+`src/product_types/apparel.py` is a second, real `ProductTypeHandler` implementation — boots, not Apple hardware. It exists to prove the pluggable product-type architecture (`src/product_types/base.py`) actually generalizes to a category with a completely different field set, not just different constants plugged into the electronics shape:
+
+| | electronics.py | apparel.py |
+|---|---|---|
+| Parsed spec fields | `ram_gb`, `storage_gb`, `screen_size`, `chip`, `cpu_cores`, `gpu_cores` | `size`, `brand`, `color` |
+| Relevance filter | accessory/broken/locked keyword lists | accessory (laces/shoe trees/polish) + bad-condition keyword lists |
+| Scoring bonuses | RAM tier, chip generation, core counts, screen size, storage | preferred brand, exact size match, new/deadstock condition, color preference |
+| Price floor | $200 (Mac) / $100 (iPhone) | $50 |
+
+What this required beyond the handler itself:
+- `ScrapedListing` and the `listings` DB table gained three new optional columns (`size`, `brand`, `color`, migrated via `database.py`'s `_ensure_columns()` stopgap) — always `NULL`/`None` for electronics listings, only populated for an apparel search. Proves a single `listings` table can carry more than one category's specs, not just one handler swapped for another.
+- `SearchConfig` gained `sizes`, `preferred_brands`, `colors` (all optional, default empty — every existing `config.yaml` entry keeps working unchanged).
+- **Zero changes** to any of the 10 scraper files — `get_enabled_scrapers()` automatically includes the general marketplaces (eBay, Swappa, Mercari, OfferUp, BackMarket, Craigslist, Facebook — they build queries from `product_name` alone) and automatically skips the Apple-only storefronts (Apple Refurb, BestBuy, Newegg, Gazelle, already marked `applicable_product_types: [electronics]`), exactly as `product_types/base.py`'s "how to add a new product type" doc comment predicted.
+
+**Not enabled in production**: `apparel` is registered in `PRODUCT_TYPES` but there's no active `searches:` entry for it in `config.yaml` — only a commented-out example. This repo's owner wants their Discord channel alerting on Apple deals, not boots, so the feature is proven via `tests/test_product_types_apparel.py` (28 tests: parsing, filtering, scoring, and a `get_enabled_scrapers()` integration check) rather than by actually running it in production. Uncomment the example in `config.yaml` to turn it on for real.
+
 ## Environment Variables
 
 See `.env.example` for the full list with descriptions. Locally these go in a `.env` file (gitignored); in GitHub Actions they're environment-scoped repository secrets — never committed.
@@ -211,7 +229,8 @@ src/
 ├── price_analyzer.py         # Deal scoring algorithm
 ├── product_types/
 │   ├── base.py                # ProductTypeHandler interface
-│   └── electronics.py         # Apple hardware implementation
+│   ├── electronics.py         # Apple hardware implementation (MacBook Pro/iPhone)
+│   └── apparel.py             # Boots implementation — second category, not live in config.yaml
 └── scrapers/
     ├── base.py                # BaseScraper ABC (rate limiting, dispatch to product_types)
     ├── ebay.py, swappa.py, apple_refurb.py, backmarket.py,
@@ -219,7 +238,7 @@ src/
     └── offerup.py, facebook.py
 tests/
 ├── test_config.py, test_database.py, test_scrapers.py,
-├── test_product_types.py, test_price_analyzer.py, test_environment.py,
+├── test_product_types.py, test_product_types_apparel.py, test_price_analyzer.py, test_environment.py,
 ├── test_price_drop.py, test_backmarket_scraper.py, test_gazelle_scraper.py,
 ├── test_newegg_scraper.py, test_craigslist_scraper.py,
 └── test_price_history.py, test_scooped_deal.py, test_dry_run.py,
