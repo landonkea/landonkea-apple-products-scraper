@@ -510,7 +510,9 @@ def run_scrape(config: Config) -> int:
     # ── 1. Setup ───────────────────────────────────────────────
     print("📦 Initializing...")
 
-    # Database
+    # Database — get_session() runs Alembic migrations (upgrade to
+    # "head") before returning, so the schema is always current
+    # before any read/write below. See database.py's run_migrations().
     db = get_session(config.database.url)
     print(f"  [DB] Connected to {config.database.url}")
 

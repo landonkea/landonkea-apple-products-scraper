@@ -5,13 +5,14 @@
 # Every listing we find becomes a row in the "listings" table.
 # ───────────────────────────────────────────────────────────────────
 
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional  # noqa: F401 -- used only in `# type:` comments below
 
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from sqlalchemy import (
     create_engine,
-    inspect,
-    text,
     Column,
     ForeignKey,
     Integer,
@@ -328,40 +329,56 @@ def create_tables(engine):
     """
     Create all tables that don't exist yet.
 
-    This is idempotent — running it multiple times is safe.
-    Call this once at startup.
+    This is idempotent — running it multiple times is safe. Kept
+    around for direct ORM-only use (e.g. tests that want a schema
+    without going through Alembic) — normal startup uses
+    run_migrations() below instead, which is what actually keeps a
+    real (possibly pre-existing) database's schema current.
     """
     Base.metadata.create_all(engine)
 
 
-def _ensure_columns(engine):
+# ── Project root, for locating alembic.ini/migrations/ regardless of
+# the process's current working directory (GitHub Actions, Docker,
+# and a developer's shell all differ here). src/database.py -> src/
+# -> repo root is two levels up.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def run_migrations(database_url: str) -> None:
     """
-    Add any ORM columns missing from an already-existing "listings"
-    table.
+    Bring the database at `database_url` up to the latest Alembic
+    migration ("head").
 
-    `create_tables()` only creates tables that don't exist yet — it
-    won't alter a table that's already there, and the committed
-    data/listings.db predates cpu_cores/gpu_cores.  This is a
-    lightweight stand-in for a real migration tool (no Alembic setup
-    exists in this project), safe to call on every startup.
+    This replaces the old create_tables() + _ensure_columns() pair as
+    the thing that keeps a database's schema current on startup.
+    Unlike create_tables() (only creates missing tables) and the old
+    _ensure_columns() (a hand-rolled ALTER-TABLE stopgap, only ever
+    covered the "listings" table), this is a real, versioned schema
+    history — see migrations/versions/0001_baseline_schema.py, which
+    reproduces exactly what those two used to produce together as
+    Alembic's baseline revision, and every migration since covers the
+    rest.
+
+    Safe to call every startup, against any database: a brand new
+    empty file, an existing dev/staging database already fully
+    migrated (no-op), or a database that's never seen Alembic before
+    (e.g. the committed production data/listings.db) — Alembic
+    creates its own "alembic_version" bookkeeping table the first
+    time it runs against a database and picks up from there on every
+    call after.
+
+    Args:
+        database_url: e.g. "sqlite:///data/listings.db" — the same,
+            already environment-scoped URL passed to get_engine().
     """
-    inspector = inspect(engine)
-    if "listings" not in inspector.get_table_names():
-        return
-
-    existing_columns = {col["name"] for col in inspector.get_columns("listings")}
-    new_columns = {
-        "cpu_cores": "INTEGER",
-        "gpu_cores": "INTEGER",
-        "size": "FLOAT",
-        "brand": "VARCHAR(100)",
-        "color": "VARCHAR(50)",
-    }
-
-    with engine.begin() as conn:
-        for name, sql_type in new_columns.items():
-            if name not in existing_columns:
-                conn.execute(text(f"ALTER TABLE listings ADD COLUMN {name} {sql_type}"))
+    cfg = AlembicConfig(os.path.join(_PROJECT_ROOT, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(_PROJECT_ROOT, "migrations"))
+    # Override the placeholder/default URL in alembic.ini with the
+    # real, already environment-scoped URL for this run — see
+    # migrations/env.py for how this value gets picked up.
+    cfg.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(cfg, "head")
 
 
 # ── Retention policy ────────────────────────────────────────────────
@@ -455,7 +472,6 @@ def get_session(database_url: str) -> Session:
         listing = db.query(Listing).first()
     """
     engine = get_engine(database_url)
-    create_tables(engine)
-    _ensure_columns(engine)
+    run_migrations(database_url)
     SessionLocal = sessionmaker(bind=engine)
     return SessionLocal()
