@@ -333,6 +333,35 @@ class PriceAnalyzer:
         text = f"{listing.condition or ''} {listing.title or ''}".lower()
         return any(kw in text for kw in SUSPICIOUS_CONDITION_KEYWORDS)
 
+    @staticmethod
+    def _threshold_key(listing: Listing):
+        """
+        The key used to look up this listing's great_deal_usd /
+        good_deal_usd threshold in config.yaml's `price:` block.
+
+        WHY: great_deal_usd/good_deal_usd is a dict keyed by whatever
+        spec tier distinguishes "which threshold applies" for a given
+        product -- historically always RAM (MacBook's 128/64GB, iPad
+        Pro's 16GB). That assumption breaks for any product with no
+        RAM concept at all (iPhone, Vision Pro) -- previously this
+        silently defaulted to 64, which for those listings meant
+        "MacBook Pro 64GB" thresholds ($4000/$4500) applied to a
+        headset or phone by accident, purely because 64 happened to be
+        the hardcoded fallback. Falling back to storage_gb instead
+        gives products with no RAM tier a chance at a real, specific
+        threshold (e.g. Vision Pro's storage-keyed thresholds below) --
+        and for products with neither (an unparsed listing), falling
+        through to dict.get()'s own default (5000/5500) is still a
+        more honest "we don't know" than silently reusing a MacBook
+        tier.
+
+        Returns:
+            listing.ram_gb if set, else listing.storage_gb, else None
+            (dict.get() with None simply misses and returns its
+            caller-supplied default).
+        """
+        return listing.ram_gb or listing.storage_gb
+
     def _source_reliability_bonus(self, source: str) -> float:
         """
         Look up the small trust nudge for one marketplace `source`.
@@ -458,9 +487,9 @@ class PriceAnalyzer:
         # If we have no data, use config thresholds as baseline
         if stats["count"] == 0:
             # Score based purely on great_deal/good_deal thresholds
-            ram = listing.ram_gb or 64
-            great = self.config.price.great_deal_usd.get(ram, 5000)
-            good = self.config.price.good_deal_usd.get(ram, 5500)
+            key = self._threshold_key(listing)
+            great = self.config.price.great_deal_usd.get(key, 5000)
+            good = self.config.price.good_deal_usd.get(key, 5500)
 
             if listing.price_usd <= great:
                 score = 90.0  # Great deal
@@ -576,9 +605,11 @@ class PriceAnalyzer:
         for listing in self.listings:
             listing.deal_score = self._score_listing(listing)
 
-            # Check if it qualifies as a "great deal"
-            ram = listing.ram_gb or 64
-            threshold = self.config.price.great_deal_usd.get(ram, 5000)
+            # Check if it qualifies as a "great deal" -- see
+            # _threshold_key()'s docstring for why this isn't always
+            # RAM.
+            key = self._threshold_key(listing)
+            threshold = self.config.price.great_deal_usd.get(key, 5000)
             listing.is_great_deal = listing.price_usd <= threshold
 
             # Suspicious-price safeguard (see module docstring above):

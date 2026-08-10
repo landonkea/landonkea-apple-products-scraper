@@ -1,6 +1,6 @@
 # landonkea-apple-products-scraper
 
-Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box, Gazelle, Newegg, and Craigslist on a schedule (see [Run Schedule](#run-schedule), at least once daily, optionally more often), alerting on great-priced deals for MacBook Pro (last 3 chip generations), iPhone Pro Max (last 3 generations), and iPad Pro (last 3 chip generations, WiFi + Cellular). OfferUp and Facebook Marketplace are wired in as login-gated stubs, they stay inert (zero network calls) until their session-cookie secrets are configured.
+Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box, Gazelle, Newegg, and Craigslist on a schedule (see [Run Schedule](#run-schedule), once daily by default), alerting on great-priced deals for MacBook Pro (last 3 chip generations), iPhone Pro Max (last 3 generations), iPad Pro (last 3 chip generations, WiFi + Cellular), and Apple Vision Pro (256/512GB/1TB, both the original M2 and the Oct 2025 M5-refresh unit, see [Apple Vision Pro](#apple-vision-pro) below). OfferUp and Facebook Marketplace are wired in as login-gated stubs, they stay inert (zero network calls) until their session-cookie secrets are configured.
 
 ## How It Works
 
@@ -179,6 +179,16 @@ Two of those components are new:
 
 Both `deal_score_breakdown` and the Apple-refurb comparison fields are runtime-only attributes on `Listing` (not database columns), cheap to recompute every run from data already in the current batch, so there's no schema migration and nothing to go stale.
 
+## Apple Vision Pro
+
+`src/product_types/vision_pro.py` is a third `ProductTypeHandler` — Apple's headset. It's live in production (an active `searches:` entry in `config.yaml`), unlike apparel below. It's a dedicated handler rather than an `electronics.py` search entry because Vision Pro doesn't fit that shape at all: no RAM configuration option, no "Pro"/"Max" chip tier, and `ElectronicsHandler.is_relevant()` only special-cases MacBook/iPhone/iPad — anything else falls through to "always relevant," which would let every case/light-seal/battery-cable/prescription-lens-insert accessory listing straight through unfiltered.
+
+**Hardware covered**: there is no "Vision Pro 2" — Apple has announced only one redesign-free internal refresh so far, upgrading the original Feb 2024 launch unit's M2 chip to M5 (plus a new Dual Knit Band) on Oct 22, 2025. The scraper matches both by storage tier (256GB/512GB/1TB — reusing `electronics.py`'s existing `extract_storage_gb()`/`extract_chip()`, since those fields parse identically for Vision Pro titles), with score bonuses weighted so the newer M5 chip and larger storage tiers rank toward the top of an alert (+8 for M5, +12/+6/+0 for 1TB/512GB/256GB) — tunable in `src/product_types/vision_pro.py`'s `STORAGE_TIERS` if the weighting ever needs revisiting.
+
+**Price thresholds** (`config.yaml`'s `great_deal_usd`/`good_deal_usd`) are keyed by `storage_gb` instead of `ram_gb`, researched against Aug 2026 market data: new retail is $3,499/$3,699/$3,899 for 256GB/512GB/1TB, and used/resale (eBay, Swappa) was running roughly $1,700-1,800 for 256GB and $1,900-2,200 for 512GB/1TB — great-deal thresholds are set ~20-26% below that. `PriceAnalyzer._threshold_key()` picks `ram_gb` when set, else `storage_gb`, so this doesn't collide with MacBook/iPad's RAM-keyed thresholds (a MacBook/iPad listing always has `ram_gb` set; a Vision Pro listing never does) — this fallback also fixed a latent bug where any RAM-less listing (this previously included iPhone) silently defaulted to the MacBook 64GB tier's thresholds instead of a sane default.
+
+**Storefront coverage**: same pattern as apparel below — the general marketplaces (eBay, Swappa, Mercari, OfferUp, BackMarket, Craigslist, Facebook) cover it for free since they build queries from `product_name` alone. The Apple-only storefronts (Apple Refurb, BestBuy, Newegg, Gazelle) do **not** search it yet — they're still scoped to `applicable_product_types: [electronics]`, and several of them (Apple Refurb, Gazelle) hit hardcoded per-generation URLs that would need real scraper changes, not just a config flip, to add Vision Pro coverage. That's optional follow-up work, not required for the general-marketplace coverage to alert on real deals today.
+
 ## Second Product Type: Apparel (Architecture Proof)
 
 `src/product_types/apparel.py` is a second, real `ProductTypeHandler` implementation — boots, not Apple hardware. It exists to prove the pluggable product-type architecture (`src/product_types/base.py`) actually generalizes to a category with a completely different field set, not just different constants plugged into the electronics shape:
@@ -219,20 +229,17 @@ See `.env.example` for the full list with descriptions. Locally these go in a `.
 
 ## Run Schedule
 
-**In plain terms:** the production scraper always runs once a day at 6am America/Phoenix, and can optionally run more often, you control that by editing a list of hours in `config.yaml`, without touching any workflow or code.
-
-GitHub Actions' cron triggers are static, they live in `.github/workflows/scrape.yml` and can't read a config file to decide their own schedule at the moment GitHub's scheduler evaluates them. So instead, that workflow's trigger fires every hour, and its very first step (`Check if this hour should run`) reads `config.yaml`'s `schedule:` section and decides whether *this particular hour* should actually scrape.
+**In plain terms:** the production scraper runs once a day at 6am America/Phoenix, via a static cron trigger in `.github/workflows/scrape.yml`:
 
 ```yaml
 schedule:
-  guaranteed_hours_utc: [13]      # 13 UTC = 6am America/Phoenix (no DST in AZ)
-  additional_hours_utc: []        # e.g. [1, 7, 19] for four runs/day
+  - cron: "0 13 * * *"   # 13 UTC = 6am America/Phoenix (no DST in AZ)
 ```
 
-If the current UTC hour isn't in `guaranteed_hours_utc` or `additional_hours_utc`, every remaining step in that run is skipped, no dependencies installed, no scrape, done in a few seconds. This means.
+Every firing does a real scrape, there's no separate gating step deciding whether "this particular firing" should count. (An earlier version of this workflow fired hourly, then 4x/day, with a first step that read an hour list out of `config.yaml` to decide whether to actually do work that firing, letting the schedule change via a `config.yaml` edit alone. That indirection wasn't worth it for a repo that only ever wants one run a day, so it's gone; `config.yaml`'s `schedule:` block is now purely informational, and the cron expression above is the actual source of truth.)
 
-- **Changing the schedule is a `config.yaml` edit, not a workflow edit.** Add an hour to `additional_hours_utc`, push, and it takes effect on the next hourly firing.
-- **Manual runs** (`workflow_dispatch`, the "Run workflow" button in the Actions tab) always scrape for real, regardless of the current hour or this config, see each step's `if:` condition in `scrape.yml`.
+- **Changing the schedule is a `scrape.yml` edit.** Change the cron expression directly (see [crontab.guru](https://crontab.guru) for syntax) to run more/less often or at a different time.
+- **Manual runs** (`workflow_dispatch`, the "Run workflow" button in the Actions tab) always scrape for real, on demand, regardless of the cron schedule.
 - Running more often than once a day uses more GitHub Actions minutes. On a public repo (see below) that's free either way; on a private repo it counts against the account's Actions quota.
 
 ## Database Migrations
