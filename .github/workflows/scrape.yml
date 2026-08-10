@@ -1,11 +1,21 @@
 # ───────────────────────────────────────────────────────────────────
-# GitHub Actions workflow — runs the scraper every 6 hours
+# GitHub Actions workflow — runs the scraper once a day
 # ───────────────────────────────────────────────────────────────────
 # This file tells GitHub to:
-#   1. Run `apple-product-scraper` every 6 hours via cron
+#   1. Run `apple-product-scraper` once a day via cron (6am America/
+#      Phoenix = 13 UTC, no DST since Arizona doesn't observe it)
 #   2. Allow manual triggering from the GitHub UI ("workflow_dispatch")
 #   3. Commit the SQLite database back to the repo so we don't
 #      lose seen listings between runs
+#
+# Every firing does a real scrape -- there is no separate gating step.
+# An earlier version of this workflow fired hourly (or later, 4x/day)
+# and used a first step that read config.yaml's `schedule:` section
+# to decide whether that particular firing should actually scrape,
+# so the run frequency could be changed via a config.yaml edit alone.
+# That flexibility wasn't worth the extra moving part for a repo that
+# only ever wants one run a day -- changing the frequency now just
+# means editing the cron expression below directly.
 #
 # To enable:
 #   1. Push this repo to GitHub (public or private)
@@ -32,22 +42,17 @@ concurrency:
 
 # ── When to run ──────────────────────────────────────────────────
 on:
-  # ── Cron trigger: fires every hour ───────────────────────────
-  # GitHub Actions cron triggers are static -- they can't read a
-  # runtime config file to decide their own schedule. So this fires
-  # every hour, and the very first job step below decides -- by
-  # reading config.yaml's `schedule:` section -- whether THIS hour
-  # is one that should actually scrape. Every other hour exits in a
-  # few seconds without installing anything. This is what makes the
-  # schedule "dynamic": editing config.yaml's hour list changes real
-  # behavior on the next firing, no edit to this file needed.
+  # ── Cron trigger: fires once a day, at 13 UTC ────────────────
+  # 13 UTC = 6am America/Phoenix. Arizona doesn't observe DST, so
+  # this stays correct year-round without ever needing to shift.
+  # To change the frequency/time, edit this cron expression directly
+  # (e.g. "0 13,1 * * *" for twice a day) -- see cron syntax at
+  # https://crontab.guru if you're picking a new expression.
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 13 * * *"
 
   # ── Manual trigger: allows running from GitHub UI ────────────
-  # Always runs for real, regardless of the current hour or
-  # config.yaml's schedule -- see the "Check if this hour should
-  # run" step's condition.
+  # Always runs for real, on demand, regardless of the cron schedule.
   workflow_dispatch:
 
 # ── Permissions ─────────────────────────────────────────────────
@@ -72,52 +77,8 @@ jobs:
           # Fetch full history so we can commit changes
           fetch-depth: 0
 
-      # 1b. This job's trigger fires every hour (see the `on:` block
-      #     above). Before installing anything, check config.yaml's
-      #     `schedule:` section to decide whether THIS hour is one
-      #     that should actually scrape -- every other hour exits
-      #     right here, in a few seconds, using no real minutes.
-      #     Manual runs (workflow_dispatch) always proceed regardless
-      #     of the hour -- see this step's `if:` below and each later
-      #     step's `if:`.
-      - name: Check if this hour should run
-        id: schedule_check
-        if: github.event_name == 'schedule'
-        run: |
-          python3 - <<'PYEOF'
-          import ast
-          import os
-          import re
-          from datetime import datetime, timezone
-
-          with open("config.yaml") as f:
-              text = f.read()
-
-          def extract_hours(key: str) -> list[int]:
-              match = re.search(rf"^\s*{key}:\s*(\[[^\]]*\])", text, re.MULTILINE)
-              if not match:
-                  raise ValueError(f"config.yaml's schedule: section is missing `{key}:` — "
-                                    f"see README's 'Run Schedule' section for the expected format.")
-              return ast.literal_eval(match.group(1))
-
-          guaranteed = extract_hours("guaranteed_hours_utc")
-          additional = extract_hours("additional_hours_utc")
-          enabled_hours = set(guaranteed) | set(additional)
-
-          current_hour = datetime.now(timezone.utc).hour
-          should_run = current_hour in enabled_hours
-
-          print(f"Current UTC hour: {current_hour}")
-          print(f"Enabled hours (guaranteed + additional): {sorted(enabled_hours)}")
-          print(f"Should run this hour: {should_run}")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-              out.write(f"should_run={'true' if should_run else 'false'}\n")
-          PYEOF
-
       # 2. Set up Python
       - name: Setup Python
-        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -125,7 +86,6 @@ jobs:
 
       # 3. Install dependencies
       - name: Install dependencies
-        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         run: |
           pip install -e .
           pip install -e ".[dev]"
@@ -133,7 +93,6 @@ jobs:
 
       # 4. Install Playwright browsers (needed for OfferUp scraper)
       - name: Install Playwright browsers
-        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         run: |
           playwright install --with-deps chromium
 
@@ -144,13 +103,12 @@ jobs:
       #     failure here never blocks the scheduled scraper run below —
       #     this step's whole purpose is visibility, not gating.
       - name: Run tests and generate report
-        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         continue-on-error: true
         run: |
           ./scripts/run_tests_with_report.sh
 
       - name: Upload test report
-        if: always() && (github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true')
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results-production
@@ -167,7 +125,6 @@ jobs:
       #     secret unset just falls back to config.yaml's placeholder
       #     region — never a hard failure.
       - name: Write local config overrides
-        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         env:
           CRAIGSLIST_REGIONS_YAML: ${{ secrets.CRAIGSLIST_REGIONS_YAML }}
         run: |
@@ -179,7 +136,6 @@ jobs:
 
       # 5. Run the scraper
       - name: Run scraper
-        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         env:
           # Explicitly declare that this is the real production run —
           # the only place that should ever post to the live Discord
@@ -200,7 +156,6 @@ jobs:
       #    This preserves seen listings and price history between runs,
       #    and publishes the latest trend data to the GitHub Pages site.
       - name: Commit database and chart data updates
-        if: github.event_name != 'schedule' || steps.schedule_check.outputs.should_run == 'true'
         run: |
           git config user.name "Apple Product Scraper Bot"
           git config user.email "bot@landonkea-apple-products-scraper"
