@@ -107,6 +107,22 @@ searches:
     location: ~
     results_per_size: 30
 
+  # ── Apple Vision Pro (256/512/1TB; both the original Feb 2024 M2
+  # unit and the Oct 2025 M5 refresh -- see
+  # src/product_types/vision_pro.py's module docstring for why there's
+  # no generation_family here: unlike MacBook/iPhone/iPad, Vision Pro
+  # has no annual chip-tier cycle to expand, just two hardware states
+  # to date, both matched by one search) ──────────────────────────
+  - product_name: "Apple Vision Pro"
+    product_type: vision_pro
+    screen_sizes: []
+    ram_gb_primary: ~     # no RAM configuration option on Vision Pro
+    ram_gb_fallback: ~
+    storage_gb_min: ~      # no minimum -- 256/512/1TB all valid
+    storage_gb_max: ~
+    location: ~
+    results_per_size: 30
+
   # ── EXAMPLE: a second, non-electronics product_type ────────────
   # Commented out on purpose -- this repo's owner only wants their
   # Discord channel alerting on MacBook Pro/iPhone deals, so this
@@ -143,16 +159,39 @@ price:
   # A great deal on 128GB would be under $5,000 (~25%+ off retail).
   # For 64GB, under $4,000.
   # For iPad Pro 16GB, under $900 (~25%+ off retail).
+  # NOTE ON KEYS: this dict is keyed by RAM for MacBook Pro (128/64)
+  # and iPad Pro (16). Apple Vision Pro has no RAM configuration
+  # option, so it's keyed by storage_gb instead (256/512/1024) --
+  # PriceAnalyzer._threshold_key() falls back to storage_gb whenever
+  # a listing has no ram_gb, so there's no key collision between the
+  # two schemes (a MacBook/iPad listing always has ram_gb set; a
+  # Vision Pro listing never does).
   great_deal_usd:
     128: 5000    # 128GB: alert if under $5,000
     64:  4000    # 64GB:  alert if under $4,000
     16:  900     # iPad Pro 16GB: alert if under $900
+    # ── Apple Vision Pro (storage_gb-keyed) ──────────────────────
+    # Researched Aug 2026: new retail (Oct 2025 M5 refresh) is
+    # $3,499/$3,699/$3,899 for 256/512/1TB
+    # (apple.com/newsroom/2025/10/apple-vision-pro-upgraded-with-the-m5-chip-and-dual-knit-band/).
+    # Used/resale market for the (still-recent, ~2.5yr old) headset is
+    # running roughly $1,700-1,800 for 256GB and $1,900-2,200 for
+    # 512GB/1TB across eBay/Swappa. Great-deal thresholds set ~20-26%
+    # below that observed resale range, laddering up with storage the
+    # same way new-retail pricing does.
+    256:  1300   # 256GB: alert if under $1,300
+    512:  1500   # 512GB: alert if under $1,500
+    1024: 1700   # 1TB:   alert if under $1,700
 
   # "Good deal" threshold — worth checking but less urgent.
   good_deal_usd:
     128: 5500    # 128GB: worth looking at under $5,500
     64:  4500    # 64GB:  worth looking at under $4,500
     16:  1000    # iPad Pro 16GB: worth looking at under $1,000
+    # ── Apple Vision Pro (storage_gb-keyed) — see great_deal_usd above
+    256:  1500   # 256GB: worth looking at under $1,500
+    512:  1700   # 512GB: worth looking at under $1,700
+    1024: 1950   # 1TB:   worth looking at under $1,950
 
   # Number of top deals to include in each alert email
   # Increased from 15 to 25 to account for more scraping sources
@@ -347,24 +386,15 @@ alerts:
     enabled: true
 
 # ── RUN SCHEDULE ───────────────────────────────────────────────────
-# .github/workflows/scrape.yml's trigger fires every hour, but each
-# firing only does real work if the current UTC hour is listed below
-# -- everything else exits in a few seconds (see that workflow's
-# "Check if this hour should run" step). Edit this list any time; it
-# takes effect on the next hourly firing, no workflow/code change or
-# redeploy needed.
-#
-# guaranteed_hours_utc: hours that always run. 13 = 6am America/Phoenix
-# (UTC-7 year-round -- Arizona doesn't observe DST, so this doesn't
-# drift twice a year the way most US timezones would).
-#
-# additional_hours_utc: extra run hours beyond the guaranteed ones,
-# e.g. [1, 7, 19] for four runs/day spread out. Empty by default --
-# add hours here if you want fresher data than once a day and are
-# fine with the added GitHub Actions usage.
+# Informational only -- .github/workflows/scrape.yml's cron trigger
+# (`schedule: - cron: "0 13 * * *"`) is the actual source of truth for
+# when the production scraper runs. There's no config.yaml-driven
+# gating step anymore (there used to be one, reading hour lists from
+# this section, when the workflow fired hourly/4x-a-day and decided
+# per-firing whether to do real work). To change the run frequency or
+# time now, edit that cron expression directly in scrape.yml.
 schedule:
-  guaranteed_hours_utc: [13]
-  additional_hours_utc: []
+  cron_utc: "0 13 * * *"   # 13 UTC = 6am America/Phoenix (no DST in AZ)
 
 # ── DATABASE ───────────────────────────────────────────────────────
 database:
