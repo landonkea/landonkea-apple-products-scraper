@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# Vision Pro product type — Apple's headset, a third ProductTypeHandler
+# Vision Pro product type, Apple's headset, a third ProductTypeHandler
 # ───────────────────────────────────────────────────────────────────
 # WHAT: Apple Vision Pro doesn't fit electronics.py's MacBook/iPhone/
 # iPad shape at all -- no RAM configuration (fixed unified memory,

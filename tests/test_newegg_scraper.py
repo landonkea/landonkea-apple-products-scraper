@@ -7,7 +7,7 @@
 # docstring's "LISTING CARD STRUCTURE" notes, confirmed via live
 # fetches) and check what each parsing helper extracts from them. The
 # network-calling scrape() method itself is intentionally NOT tested
-# here — it needs live HTTP access, which isn't how this project's
+# here, it needs live HTTP access, which isn't how this project's
 # test suite works (see test_scrapers.py).
 #
 # HOW TO RUN:
@@ -31,7 +31,7 @@ def make_scraper(product_name="MacBook Pro"):
 
     WHY A FAKE CONFIG: The parsing helpers under test here never read
     self.config except for product_name (used to build the search
-    URL) — a SimpleNamespace with just that field avoids building out
+    URL), a SimpleNamespace with just that field avoids building out
     a full Config dataclass tree for no benefit.
     """
     fake_search = SimpleNamespace(product_name=product_name, results_per_size=30, product_type="electronics")
@@ -45,7 +45,7 @@ def card_from_html(html: str):
 
 
 def test_build_search_url_bare_query_no_sort():
-    """Query is the bare product name, no sort param — see module docstring."""
+    """Query is the bare product name, no sort param, see module docstring."""
     scraper = make_scraper("MacBook Pro")
     assert scraper._build_search_url(1) == "https://www.newegg.com/p/pl?d=MacBook+Pro"
 

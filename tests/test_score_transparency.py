@@ -3,13 +3,13 @@
 # "vs. Apple Refurb" baseline comparison
 # ───────────────────────────────────────────────────────────────────
 # Three related additions to PriceAnalyzer, all covered here:
-#   1. format_score_breakdown() — renders a deal_score_breakdown dict
+#   1. format_score_breakdown(), renders a deal_score_breakdown dict
 #      into a compact, human-readable string.
 #   2. _score_listing() attaches a `deal_score_breakdown` to every
 #      listing whose named components sum to the final score.
-#   3. Per-source reliability nudge — DEFAULT_SOURCE_RELIABILITY_BONUS
+#   3. Per-source reliability nudge, DEFAULT_SOURCE_RELIABILITY_BONUS
 #      plus config.yaml's price.source_reliability override.
-#   4. "vs. Apple Refurb" baseline — a listing cheaper than Apple
+#   4. "vs. Apple Refurb" baseline, a listing cheaper than Apple
 #      Refurb's price for the exact same (chip, ram_gb, storage_gb)
 #      gets apple_refurb_price/vs_apple_refurb_pct set.
 # ───────────────────────────────────────────────────────────────────

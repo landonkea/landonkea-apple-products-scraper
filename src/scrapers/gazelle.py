@@ -1,15 +1,15 @@
 # ───────────────────────────────────────────────────────────────────
-# Gazelle scraper — fetches listings from gazelle.com
+# Gazelle scraper, fetches listings from gazelle.com
 # ───────────────────────────────────────────────────────────────────
 # Gazelle is a used-electronics reseller (similar business model to
-# Swappa — no login required to browse/search).
+# Swappa, no login required to browse/search).
 #
-# LIVE-TESTING FINDINGS (this is what the code below is built on —
+# LIVE-TESTING FINDINGS (this is what the code below is built on,
 # do not "fix" this scraper based on assumptions without re-checking
 # these against the real site first):
 #
 #   1. www.gazelle.com is a marketing/landing shell. The actual store
-#      (and every route that matters — /collections/*, /products/*,
+#      (and every route that matters, /collections/*, /products/*,
 #      /search*) lives on a DIFFERENT hostname: buy.gazelle.com. A
 #      request to www.gazelle.com/collections/... or .../products.json
 #      404s even though the same path on buy.gazelle.com returns 200.
@@ -17,13 +17,13 @@
 #
 #   2. buy.gazelle.com is a stock Shopify storefront (theme id visible
 #      in asset URLs, standard Shopify JSON endpoints all respond).
-#      That means it exposes Shopify's public JSON APIs directly —
+#      That means it exposes Shopify's public JSON APIs directly,
 #      no HTML scraping or JS rendering needed at all:
 #        - GET /collections/{handle}/products.json?limit=250
 #          Returns every product in a named collection, each with a
 #          `variants` array giving price, availability, and the
 #          option values (color / condition) per SKU. This is the
-#          richest source — use it whenever a collection handle is
+#          richest source, use it whenever a collection handle is
 #          known.
 #        - GET /search/suggest.json?q={query}&resources[type]=product
 #          Site-wide predictive search. Product-level only (no
@@ -31,17 +31,17 @@
 #          string, including product types the site doesn't stock
 #          (returns an empty products list rather than an error).
 #      fetch_page() (plain requests, no Playwright) works fine for
-#      both — no 403s, no bot-challenge page, confirmed via curl with
+#      both, no 403s, no bot-challenge page, confirmed via curl with
 #      a plain desktop UA and zero cookies/session warm-up.
 #
 #   3. GAZELLE DOES NOT SELL MACBOOKS. Checked exhaustively:
 #      /products.json?limit=250 (both pages, ~500 products total)
-#      only ever has product_type "Cell Phones" or "iPads" — never a
+#      only ever has product_type "Cell Phones" or "iPads", never a
 #      laptop category. /search/suggest.json?q=macbook returns
-#      `{"resources":{"results":{"products":[]}}}` — a genuine empty
+#      `{"resources":{"results":{"products":[]}}}`, a genuine empty
 #      catalog result, not a bug or a bot block. Gazelle's own nav
 #      menu (scraped from the homepage) lists only iPhone/iPad/Google
-#      Phone/Samsung Galaxy collections — no Mac category exists to
+#      Phone/Samsung Galaxy collections, no Mac category exists to
 #      link to. So for the "MacBook Pro" search, 0 results is the
 #      correct, verified answer *today*. The code below still runs a
 #      real site-wide search for it (rather than hardcoding "return
@@ -50,16 +50,16 @@
 #
 #   4. For iPhone Pro Max, Gazelle DOES have real inventory, split
 #      into one collection per generation, named exactly
-#      `iphone-{N}-pro-max` (verified for N=15, 16, 17 — all 200 OK).
+#      `iphone-{N}-pro-max` (verified for N=15, 16, 17, all 200 OK).
 #      Each collection's products.json has one Shopify "product" per
 #      storage+carrier combo (e.g. "iPhone 17 Pro Max 256GB
 #      (Unlocked)"), and each product has one variant per
 #      color x condition (Fair / Good / Excellent) with its own price
 #      and `available` flag. Most variants are sold out at any given
-#      time (`available: false`) — e.g. a live check of the 15/16/17
+#      time (`available: false`), e.g. a live check of the 15/16/17
 #      Pro Max collections combined found only ONE available 1TB+
 #      variant across all three generations (a 16 Pro Max 1TB, Fair
-#      condition, $927.99). That's expected scarcity, not a bug —
+#      condition, $927.99). That's expected scarcity, not a bug,
 #      unavailable variants must be filtered out since they can't
 #      actually be bought.
 # ───────────────────────────────────────────────────────────────────
@@ -93,19 +93,19 @@ class GazelleScraper(BaseScraper):
     Scraper for Gazelle (buy.gazelle.com) marketplace listings.
 
     STRATEGY:
-    - If the search has `model_keywords` (e.g. iPhone Pro Max — see
+    - If the search has `model_keywords` (e.g. iPhone Pro Max, see
       config.yaml's generation expansion), each keyword names a real
       Gazelle generation ("iPhone 17 Pro Max") that maps directly to
       a collection handle ("iphone-17-pro-max"). Fetch each
       collection's products.json and flatten every available
       variant into a listing.
     - Otherwise (e.g. MacBook Pro, which Gazelle doesn't currently
-      stock — see module docstring), fall back to the site-wide
+      stock, see module docstring), fall back to the site-wide
       predictive-search JSON endpoint so the scraper still does a
       real search rather than assuming there's nothing to find.
     """
 
-    # The real storefront host — see module docstring point 1.
+    # The real storefront host, see module docstring point 1.
     # www.gazelle.com 404s on every route this scraper needs.
     BASE_URL = "https://buy.gazelle.com"
 
@@ -136,7 +136,7 @@ class GazelleScraper(BaseScraper):
 
         WHY SHARED: Both Gazelle data paths (per-collection and
         site-search) hit different Shopify JSON endpoints but need
-        identical fetch+parse+error-handling behavior — centralizing
+        identical fetch+parse+error-handling behavior, centralizing
         it here avoids duplicating the same try/except twice, and
         keeps "how do we talk to buy.gazelle.com" separate from "what
         do we do with the response" (handled by the two _flatten_*
@@ -163,7 +163,7 @@ class GazelleScraper(BaseScraper):
         available variants into raw listing dicts.
 
         WHY PER-COLLECTION: Gazelle (like Swappa) has no single
-        endpoint returning all generations at once — each generation
+        endpoint returning all generations at once, each generation
         is its own collection. This mirrors swappa.py's
         _fetch_listings_for_slug() pattern: isolate the per-collection
         fetch so one failing/missing generation doesn't break the
@@ -187,7 +187,7 @@ class GazelleScraper(BaseScraper):
         list of raw listing dicts, one per available variant.
 
         HOW: Every Shopify "product" (e.g. "iPhone 17 Pro Max 256GB
-        (Unlocked)") nests a `variants` array — one per color x
+        (Unlocked)") nests a `variants` array, one per color x
         condition combo. This walks products then variants and hands
         each variant to _variant_to_listing_dict() to build (or skip)
         a listing dict.
@@ -227,11 +227,11 @@ class GazelleScraper(BaseScraper):
         Excellent"), and a direct product URL pinned to this variant.
 
         HOW: option1 = color, option2 = condition (Fair/Good/Excellent)
-        on every Gazelle product checked — but falls back to the
+        on every Gazelle product checked, but falls back to the
         variant's own title if that ever changes shape.
 
         WHY SKIP SOME VARIANTS: Returns None for unavailable or
-        priceless variants — sold-out variants can't actually be
+        priceless variants, sold-out variants can't actually be
         purchased, so including them would surface deals a buyer
         can't act on.
 
@@ -283,8 +283,8 @@ class GazelleScraper(BaseScraper):
         NOTE: unlike the collection endpoint, this one is product-
         level, not variant-level (no per-condition breakdown), and
         gives a single "available" flag + price_min for the whole
-        product. That's fine here since — per the live-tested finding
-        in the module docstring — this path currently returns zero
+        product. That's fine here since, per the live-tested finding
+        in the module docstring, this path currently returns zero
         results for MacBook Pro; there's no real per-condition data
         to lose.
         """
@@ -307,7 +307,7 @@ class GazelleScraper(BaseScraper):
         listing dict.
 
         WHY A SEPARATE STEP: Mirrors _flatten_collection_products()'s
-        split — isolates "how do we walk this JSON shape" from "how
+        split, isolates "how do we walk this JSON shape" from "how
         do we convert one product into our raw-listing dict format".
 
         Args:
@@ -330,7 +330,7 @@ class GazelleScraper(BaseScraper):
 
         WHY SKIP SOME PRODUCTS: Returns None for unavailable or
         priceless products, same reasoning as
-        _variant_to_listing_dict() — an unavailable product can't
+        _variant_to_listing_dict(), an unavailable product can't
         actually be bought.
 
         Args:
@@ -458,7 +458,7 @@ class GazelleScraper(BaseScraper):
                         found.append(listing)
                         found_ids.add(listing.listing_id)
             except Exception:
-                # Skip individual listing parse errors — don't fail the whole batch.
+                # Skip individual listing parse errors, don't fail the whole batch.
                 continue
 
         print(f"  [Gazelle] Found {len(found)} matching listings")

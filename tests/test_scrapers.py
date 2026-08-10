@@ -81,7 +81,7 @@ def test_all_parsers_together():
 def test_is_likely_iphone_rejects_defective_and_faulty_listings():
     """A real live eBay result during testing was titled 'DEFECTIVE
     Apple iPhone 15 Pro Max 1TB Black - Unlocked' and passed every
-    filter — 'defective' wasn't in IPHONE_BAD_KEYWORDS. Make sure
+    filter, 'defective' wasn't in IPHONE_BAD_KEYWORDS. Make sure
     obvious condition red-flag words are now rejected."""
     assert is_likely_iphone("DEFECTIVE Apple iPhone 15 Pro Max 1TB Black - Unlocked") is False
     assert is_likely_iphone("Apple iPhone 15 Pro Max 256GB - Faulty, sold as-is") is False
@@ -98,7 +98,7 @@ def test_is_likely_iphone_checks_condition_field_too():
     """Live eBay data found a listing whose TITLE looked completely
     clean ('Apple iPhone 15 Pro Max - 1 TB - Blue Titanium
     (Unlocked)') but whose separate marketplace condition badge said
-    'Parts Only' — a title-only keyword check missed it. condition
+    'Parts Only', a title-only keyword check missed it. condition
     must be checked too."""
     title = "Apple iPhone 15 Pro Max - 1 TB - Blue Titanium (Unlocked)"
     assert is_likely_iphone(title) is True  # title alone looks fine

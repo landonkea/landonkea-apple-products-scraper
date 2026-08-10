@@ -6,7 +6,7 @@
 # functions/methods that turn already-fetched JSON payloads into raw
 # listing dicts (and raw dicts into ScrapedListing objects). The
 # network-calling scrape() method itself is intentionally NOT tested
-# here — see the module docstring in test_scrapers.py's neighboring
+# here, see the module docstring in test_scrapers.py's neighboring
 # files for why (needs live HTTP access).
 #
 # HOW TO RUN:
@@ -29,7 +29,7 @@ def make_scraper(product_name="MacBook Pro", chip_options=None, model_keywords=N
     WHY A FAKE CONFIG: The methods under test here (variant/product
     flattening, item parsing, query building) never touch self.config
     except for the few fields explicitly read (product_name,
-    chip_options, model_keywords) — a real Config object would need
+    chip_options, model_keywords), a real Config object would need
     the entire dataclass tree built out for no benefit, so a
     SimpleNamespace covering just those fields is enough.
     """

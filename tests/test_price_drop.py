@@ -30,7 +30,7 @@ import main as main_module
 
 
 class FakeConfig:
-    """Minimal stand-in for Config — only the attributes these
+    """Minimal stand-in for Config, only the attributes these
     functions actually touch are needed (same pattern used by
     tests/test_price_analyzer.py's FakeConfig)."""
 

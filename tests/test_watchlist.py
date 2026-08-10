@@ -4,18 +4,18 @@
 # A FOURTH alert type: a user hand-tracks a specific listing (by URL)
 # in data/watchlist.json and gets alerted whenever it's newly matched
 # or its price changes, regardless of deal score. Covers:
-#   1. load_watchlist()/save_watchlist() — missing file, non-list
+#   1. load_watchlist()/save_watchlist(), missing file, non-list
 #      JSON, and a real round-trip.
-#   2. match_watchlist_entries() — matching by cleaned URL for a
+#   2. match_watchlist_entries(), matching by cleaned URL for a
 #      brand-new entry, matching by (source, listing_id) once
 #      resolved, and that a match backfills those fields in place.
-#   3. find_watchlist_alerts() — first sighting alerts, an unchanged
+#   3. find_watchlist_alerts(), first sighting alerts, an unchanged
 #      price does NOT re-alert, and a price change (up OR down) DOES.
-#   4. record_watchlist_alerts() — updates bookkeeping fields.
-#   5. watchlist_path_for_environment() — production keeps the plain
+#   4. record_watchlist_alerts(), updates bookkeeping fields.
+#   5. watchlist_path_for_environment(), production keeps the plain
 #      path, dev/staging get their own scoped sibling file.
 #   6. Notifier's watchlist Discord field/message builders.
-#   7. main.py's actual wiring — _run_one_search() populates the
+#   7. main.py's actual wiring, _run_one_search() populates the
 #      shared watchlist_matches accumulator from its own db_listings.
 # ───────────────────────────────────────────────────────────────────
 

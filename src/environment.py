@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# Environment awareness — dev / staging / production
+# Environment awareness, dev / staging / production
 # ───────────────────────────────────────────────────────────────────
 # WHY THIS FILE EXISTS:
 #   This scraper runs in two very different contexts:
@@ -11,7 +11,7 @@
 #   Without an explicit signal distinguishing those two contexts, a
 #   local test run looks *identical* to a real production run: same
 #   code, same config.yaml, same database URL, same webhook. That's
-#   dangerous — a local test run could spam the real Discord channel
+#   dangerous, a local test run could spam the real Discord channel
 #   with fake "deal" alerts, or worse, write to / lock the same
 #   database file that GitHub Actions relies on. (This exact failure
 #   happened in practice: a stray local process left the production
@@ -35,7 +35,7 @@
 #                          Discord channel and touches the real DB
 #
 # WHY DEFAULT TO "production" WHEN ENVIRONMENT IS UNSET:
-#   This looks backwards at first — shouldn't the *safe* default be
+#   This looks backwards at first, shouldn't the *safe* default be
 #   dev, so unset-by-accident never triggers a live post? In this
 #   codebase's case, no: the .github/workflows/scrape.yml file (the
 #   ONLY place production alerts have ever been sent from) does not
@@ -49,7 +49,7 @@
 #   ENVIRONMENT=dev (documented in README/.env.example) before
 #   testing. Forgetting to do that is a real risk, which is exactly
 #   why step 5 of this task also adds an explicit
-#   `ENVIRONMENT: production` line to the GitHub Actions workflow —
+#   `ENVIRONMENT: production` line to the GitHub Actions workflow,
 #   making production an intentional, visible declaration there too,
 #   rather than a silent fallback nobody can see.
 # ───────────────────────────────────────────────────────────────────

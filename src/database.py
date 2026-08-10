@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# Database models — SQLAlchemy ORM
+# Database models, SQLAlchemy ORM
 # ───────────────────────────────────────────────────────────────────
 # This file defines what data we store and how.
 # Every listing we find becomes a row in the "listings" table.
@@ -62,7 +62,7 @@ class Listing(Base):
     # Examples: "ebay", "swappa", "apple_refurb", "backmarket", "mercari"
 
     # ── The marketplace's own ID for this listing ─────────────
-    # Used for deduplication — if we see the same listing_id
+    # Used for deduplication, if we see the same listing_id
     # from the same source, we update instead of inserting.
     listing_id = Column(String(200), nullable=False)
 
@@ -74,7 +74,7 @@ class Listing(Base):
     # The listed price in US dollars (as a number, so we can sort).
 
     currency = Column(String(3), default="USD")
-    # Currency code — almost always USD for these sites.
+    # Currency code, almost always USD for these sites.
 
     url = Column(Text, nullable=False)
     # Direct link to the listing page.
@@ -189,7 +189,7 @@ class Listing(Base):
 
 
 # ── Daily price-stat table (for trend charts) ─────────────────────
-# One row per (date, group_key) — e.g. ("2026-07-31", "M5 Max").
+# One row per (date, group_key), e.g. ("2026-07-31", "M5 Max").
 # group_key is the chip generation for MacBook Pro searches, or the
 # matched model generation string for iPhone searches. Rows are
 # upserted (overwritten) on every run, so the value for "today"
@@ -205,10 +205,10 @@ class DailyPriceStat(Base):
     # UTC date as "YYYY-MM-DD".
 
     product_name = Column(String(100), nullable=False)
-    # e.g. "MacBook Pro" or "iPhone Pro Max" — which search this came from.
+    # e.g. "MacBook Pro" or "iPhone Pro Max", which search this came from.
 
     group_key = Column(String(50), nullable=False, index=True)
-    # e.g. "M5 Max" or "iPhone 17 Pro Max" — the generation being tracked.
+    # e.g. "M5 Max" or "iPhone 17 Pro Max", the generation being tracked.
 
     min_price = Column(Float, nullable=False)
     avg_price = Column(Float, nullable=False)
@@ -231,7 +231,7 @@ class DailyPriceStat(Base):
 
 
 # ── Per-listing price history ──────────────────────────────────────
-# DailyPriceStat (above) is a per-generation daily aggregate — great
+# DailyPriceStat (above) is a per-generation daily aggregate, great
 # for trend charts, but it can't answer "what has THIS listing's
 # price actually done over time" (e.g. did this exact eBay listing
 # get marked down twice before it sold?). This table is that: one row
@@ -329,9 +329,9 @@ def create_tables(engine):
     """
     Create all tables that don't exist yet.
 
-    This is idempotent — running it multiple times is safe. Kept
+    This is idempotent, running it multiple times is safe. Kept
     around for direct ORM-only use (e.g. tests that want a schema
-    without going through Alembic) — normal startup uses
+    without going through Alembic), normal startup uses
     run_migrations() below instead, which is what actually keeps a
     real (possibly pre-existing) database's schema current.
     """
@@ -355,7 +355,7 @@ def run_migrations(database_url: str) -> None:
     Unlike create_tables() (only creates missing tables) and the old
     _ensure_columns() (a hand-rolled ALTER-TABLE stopgap, only ever
     covered the "listings" table), this is a real, versioned schema
-    history — see migrations/versions/0001_baseline_schema.py, which
+    history, see migrations/versions/0001_baseline_schema.py, which
     reproduces exactly what those two used to produce together as
     Alembic's baseline revision, and every migration since covers the
     rest.
@@ -363,19 +363,19 @@ def run_migrations(database_url: str) -> None:
     Safe to call every startup, against any database: a brand new
     empty file, an existing dev/staging database already fully
     migrated (no-op), or a database that's never seen Alembic before
-    (e.g. the committed production data/listings.db) — Alembic
+    (e.g. the committed production data/listings.db), Alembic
     creates its own "alembic_version" bookkeeping table the first
     time it runs against a database and picks up from there on every
     call after.
 
     Args:
-        database_url: e.g. "sqlite:///data/listings.db" — the same,
+        database_url: e.g. "sqlite:///data/listings.db", the same,
             already environment-scoped URL passed to get_engine().
     """
     cfg = AlembicConfig(os.path.join(_PROJECT_ROOT, "alembic.ini"))
     cfg.set_main_option("script_location", os.path.join(_PROJECT_ROOT, "migrations"))
     # Override the placeholder/default URL in alembic.ini with the
-    # real, already environment-scoped URL for this run — see
+    # real, already environment-scoped URL for this run, see
     # migrations/env.py for how this value gets picked up.
     cfg.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(cfg, "head")
@@ -383,7 +383,7 @@ def run_migrations(database_url: str) -> None:
 
 # ── Retention policy ────────────────────────────────────────────────
 # WHY THIS EXISTS: main.py's expire_stale_listings() marks a listing
-# inactive after 72 hours of not being seen again — but it never
+# inactive after 72 hours of not being seen again, but it never
 # deletes the row, so the "listings" table grows forever (every
 # listing any scraper has ever found, active or not, stays in the
 # database indefinitely). This function is the other half: it hard-
@@ -394,7 +394,7 @@ def run_migrations(database_url: str) -> None:
 # WHY THIS IS SAFE: the price-trend charts (docs/data/daily_stats.json,
 # generated by src/pages_generator.py) read from DailyPriceStat, a
 # separate table that already stores the aggregated min/avg/max/count
-# per day per generation — it has no foreign key or other reference
+# per day per generation, it has no foreign key or other reference
 # to individual Listing rows. Deleting old Listing rows never touches
 # that aggregated history, so the trend charts are completely
 # unaffected by this pruning.
@@ -407,9 +407,9 @@ def prune_old_inactive_listings(db, days: int = RETENTION_DAYS) -> int:
 
     WHAT: Deletes Listing rows where is_active is False AND
     last_seen_at is older than `days` days ago. Active listings are
-    never touched, regardless of age — only long-dead ones.
+    never touched, regardless of age, only long-dead ones.
 
-    HOW: A single bulk DELETE, not a per-row Python loop — this table
+    HOW: A single bulk DELETE, not a per-row Python loop, this table
     can accumulate thousands of rows over months, so avoiding an
     N-query round trip matters here (unlike expire_stale_listings(),
     which needs to load full ORM objects to flip is_active on each
@@ -417,7 +417,7 @@ def prune_old_inactive_listings(db, days: int = RETENTION_DAYS) -> int:
 
     WHY 180 DAYS: 72-hour expiry (see main.py) already means "no
     longer for sale" listings stop appearing in alerts/deals almost
-    immediately — this is a much longer, separate window purely about
+    immediately, this is a much longer, separate window purely about
     not accumulating an ever-growing SQLite file. 180 days keeps
     several months of recently-dead listings around (useful if you
     ever want to look back at "what did I miss"), while still

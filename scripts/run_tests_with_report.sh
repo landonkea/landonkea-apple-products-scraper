@@ -7,7 +7,7 @@
 #
 # WHY THIS EXISTS: `pytest tests/ -v`, `ruff check .`, and `mypy src/`
 # only ever printed to whatever console/CI log happened to be running
-# them. That log scrolls away and CI logs expire — there was no
+# them. That log scrolls away and CI logs expire, there was no
 # durable, easy-to-skim record of "did the last run actually pass,
 # and if not, what broke". This script produces that record every
 # time it's run, locally or in CI.
@@ -16,7 +16,7 @@
 #   ./scripts/run_tests_with_report.sh
 #
 # OUTPUT:
-#   test-results/latest.md   — regenerated every run (gitignored, see
+#   test-results/latest.md  , regenerated every run (gitignored, see
 #                               test-results/.gitignore). Contains a
 #                               timestamp, one-line pass/fail status
 #                               per tool, pass/fail counts for pytest,

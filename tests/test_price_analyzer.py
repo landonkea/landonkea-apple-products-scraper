@@ -18,7 +18,7 @@ from price_analyzer import PriceAnalyzer, SUSPICIOUS_TAG
 
 
 class FakeConfig:
-    """Minimal stand-in for Config — PriceAnalyzer only touches
+    """Minimal stand-in for Config, PriceAnalyzer only touches
     .search and .price, so a full Config (with YAML/env loading) is
     unnecessary for these tests."""
 
@@ -99,7 +99,7 @@ def test_implausibly_cheap_new_sealed_listing_is_flagged():
 def test_legitimately_cheap_used_listing_is_not_flagged():
     """A genuinely low-priced listing that is NOT claiming new/sealed
     condition (e.g. a legitimately cheap, cosmetically-damaged used
-    phone) should not be penalized by the safeguard — only the
+    phone) should not be penalized by the safeguard, only the
     new/sealed + implausible-price combination should be."""
     analyzer = _make_analyzer()
 

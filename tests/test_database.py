@@ -93,7 +93,7 @@ def test_prune_deletes_long_inactive_listings():
         )
         db.add(listing)
         db.commit()
-        # last_seen_at has an onupdate default set at commit time — force it
+        # last_seen_at has an onupdate default set at commit time, force it
         # back to a genuinely old timestamp to simulate a long-dead listing.
         db.query(Listing).filter(Listing.listing_id == "old_dead").update(
             {"last_seen_at": old_cutoff}
@@ -213,7 +213,7 @@ def test_deduplication():
         import sqlalchemy.exc
         try:
             db.commit()
-            # If no error, the test still passes — we handle this
+            # If no error, the test still passes, we handle this
             # in main.py via upsert logic
             pass
         except sqlalchemy.exc.IntegrityError:

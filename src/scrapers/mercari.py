@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────
-# Mercari scraper — fetches MacBook listings from Mercari Japan
+# Mercari scraper, fetches MacBook listings from Mercari Japan
 # ─────────────────────────────────────────────────────────────────────
 # Mercari is Japan's largest secondhand marketplace (like eBay Japan).
 # MacBooks are often significantly cheaper on Mercari Japan due to

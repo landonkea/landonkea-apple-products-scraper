@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Renders test-results/latest.md from pytest/ruff/mypy run output.
 
-Internal helper for scripts/run_tests_with_report.sh — not meant to be
+Internal helper for scripts/run_tests_with_report.sh, not meant to be
 run standalone (though it can be, given the right arguments). Kept as
 a separate script rather than inlined in the shell script because
 parsing pytest's JUnit XML output is much less error-prone in Python
@@ -20,7 +20,7 @@ def parse_junit(junit_path: Path) -> dict:
 
     Returns zeroed-out counts (rather than raising) if the file is
     missing or unparseable, e.g. because pytest crashed before writing
-    it (a collection error) — the caller still needs a report either way.
+    it (a collection error), the caller still needs a report either way.
     """
     empty = {"total": 0, "passed": 0, "failed": 0, "errors": 0, "skipped": 0, "failures": []}
     if not junit_path.exists():
@@ -53,7 +53,7 @@ def parse_junit(junit_path: Path) -> dict:
             if node is not None:
                 message = (node.get("message") or "").strip().splitlines()[:1]
                 message = message[0] if message else ""
-                failures.append(f"{full_name} — {message}" if message else full_name)
+                failures.append(f"{full_name}, {message}" if message else full_name)
 
     return {
         "total": total,
@@ -67,7 +67,7 @@ def parse_junit(junit_path: Path) -> dict:
 
 def status_line(label: str, exit_code: int, detail: str = "") -> str:
     icon = "PASS" if exit_code == 0 else "FAIL"
-    suffix = f" — {detail}" if detail else ""
+    suffix = f", {detail}" if detail else ""
     return f"- **{label}**: {icon} (exit code {exit_code}){suffix}"
 
 
@@ -131,7 +131,7 @@ def main() -> int:
         lines.append("")
     elif args.pytest_exit != 0:
         lines.append("pytest exited non-zero but no individual failing tests were found in the "
-                      "JUnit report (likely a collection error) — see the log excerpt below.")
+                      "JUnit report (likely a collection error), see the log excerpt below.")
         lines.append("")
         lines.append("```")
         lines.append(tail(Path(args.pytest_log)))

@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────
-# Swappa scraper — fetches MacBook listings from swappa.com
+# Swappa scraper, fetches MacBook listings from swappa.com
 # ─────────────────────────────────────────────────────────────────────
 # Swappa is a peer-to-peer marketplace for used electronics.
 # Unlike eBay, every listing is manually approved by Swappa staff,
@@ -35,7 +35,7 @@ class SwappaScraper(BaseScraper):
 
     WHY A TWO-STEP PROCESS:
     Swappa organizes listings by model variant, not by search query.
-    You can't search "MacBook Pro" and get all listings — you must
+    You can't search "MacBook Pro" and get all listings, you must
     pick a specific variant first (e.g. "MacBook Pro 14\" M3 Pro 2023").
     This scraper automates that by scraping the product page for slugs.
     """
@@ -75,18 +75,18 @@ class SwappaScraper(BaseScraper):
             Full URL to the Swappa product listing page, sorted by price ascending.
         """
         if screen_size:
-            # Screen size provided — build a product page URL for MacBook Pro.
+            # Screen size provided, build a product page URL for MacBook Pro.
             return f"{self.BASE_URL}/buy/macbooks/macbook-pro?sort=price_asc"
 
         product = self.config.search.product_name
         if "iphone" in product.lower():
             # Swappa has no per-model iPhone page (e.g. "iphone-17-pro-max"
-            # 404s) — only the category root works. We rely on
+            # 404s), only the category root works. We rely on
             # passes_filters()'s model_keywords check to narrow results
             # down to the generations we actually want.
             return f"{self.BASE_URL}/buy/iphones?sort=price_asc"
 
-        # No screen size, not an iPhone — determine category from config.
+        # No screen size, not an iPhone, determine category from config.
         slug = product.lower().replace(" ", "-")
         return f"{self.BASE_URL}/buy/{slug}/{slug}?sort=price_asc"
 
@@ -106,7 +106,7 @@ class SwappaScraper(BaseScraper):
         the size appears in the card's title text.
 
         WHY A SEPARATE STEP: Swappa has no single search endpoint that
-        returns all listings for a product — you must first discover
+        returns all listings for a product, you must first discover
         which variant pages exist before you can fetch any listings.
         Isolating that discovery here keeps it independently testable
         and readable, separate from the per-variant fetch/parse step.
@@ -420,7 +420,7 @@ class SwappaScraper(BaseScraper):
                         found.append(listing)
                         found_ids.add(listing.listing_id)
             except Exception:
-                # Skip individual listing parse errors — don't fail the whole batch.
+                # Skip individual listing parse errors, don't fail the whole batch.
                 continue
 
         print(f"  [Swappa] Found {len(found)} matching listings")

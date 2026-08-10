@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# Watchlist — track specific listings by URL, get alerted on price
+# Watchlist, track specific listings by URL, get alerted on price
 # changes regardless of deal score / great-deal thresholds
 # ───────────────────────────────────────────────────────────────────
 # WHAT: Every other alert type in this project (great/good deal,

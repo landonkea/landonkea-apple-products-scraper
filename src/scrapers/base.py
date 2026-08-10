@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# Base scraper class — every marketplace scraper inherits from this
+# Base scraper class, every marketplace scraper inherits from this
 # ───────────────────────────────────────────────────────────────────
 # This is the "template" for all scrapers.  It defines:
 #   1. The structure every scraper must follow (the interface)
@@ -21,7 +21,7 @@ from bs4 import BeautifulSoup
 from config import Config
 from product_types import PRODUCT_TYPES
 
-# Re-exported for backward compatibility — this logic moved to
+# Re-exported for backward compatibility, this logic moved to
 # src/product_types/electronics.py (the electronics ProductTypeHandler)
 # so it's no longer hardcoded into every scraper's base class, but
 # existing direct imports (e.g. tests/test_scrapers.py) keep working
@@ -105,7 +105,7 @@ class BaseScraper(ABC):
         self.config = config
         self.source_name = "base"  # Override in subclass
         
-        # HTTP session — reuses connections for speed
+        # HTTP session, reuses connections for speed
         self.session = requests.Session()
         
         # Rotate user agent per request to avoid bot detection
@@ -130,7 +130,7 @@ class BaseScraper(ABC):
             "Accept-Language": "en-US,en;q=0.9",
             # Let requests/urllib3 manage Accept-Encoding automatically.
             # Explicitly setting "br" breaks if the brotli package is
-            # not installed — requests returns raw compressed bytes.  
+            # not installed, requests returns raw compressed bytes.  
             "Sec-Ch-Ua": '"Not/A)Brand";v="99", "Google Chrome";v="125", "Chromium";v="125"',
             "Sec-Ch-Ua-Mobile": "?0",
             "Sec-Ch-Ua-Platform": '"macOS"',
@@ -288,12 +288,12 @@ class BaseScraper(ABC):
 
         What: Delegates to the active product type's parse_specs()
         (see src/product_types/) and returns whatever dict it builds
-        — for the "electronics" type (MacBook Pro / iPhone, the only
+       , for the "electronics" type (MacBook Pro / iPhone, the only
         one that exists today) that's "ram_gb", "storage_gb",
         "screen_size", "chip", "cpu_cores", "gpu_cores".
 
         How: Looks up PRODUCT_TYPES[self.config.search.product_type]
-        and calls its parse_specs(title) — no parsing logic lives
+        and calls its parse_specs(title), no parsing logic lives
         here directly.
 
         Why: Every scraper (ebay, swappa, apple_refurb, backmarket,
@@ -325,14 +325,14 @@ class BaseScraper(ABC):
         """
         Check if a listing matches our search criteria.
 
-        Checks are SKIPPED for any field set to None in config —
+        Checks are SKIPPED for any field set to None in config,
         this lets you loosen requirements without deleting fields.
 
         How: Universal checks (is this even the right product,
         location, price floor/ceiling) live here directly. Everything
         that varies by product category (chip/RAM/storage matching for
         electronics; whatever a future type needs) is delegated to
-        PRODUCT_TYPES[search.product_type] — see src/product_types/.
+        PRODUCT_TYPES[search.product_type], see src/product_types/.
 
         Args:
             listing: The parsed listing to check.
@@ -353,13 +353,13 @@ class BaseScraper(ABC):
         if not handler.passes_type_filters(listing, s):
             return False
 
-        # Check location (only if configured) — universal, not
+        # Check location (only if configured), universal, not
         # product-type-specific.
         if s.location and listing.location:
             if s.location.lower() not in listing.location.lower():
                 return False
 
-        # Check price range — the floor is product-type-specific
+        # Check price range, the floor is product-type-specific
         # (a real computer costs more than a real phone), the ceiling
         # is a universal budget cap from config.yaml.
         if listing.price_usd < handler.min_price_usd(s):
@@ -369,7 +369,7 @@ class BaseScraper(ABC):
 
         return True
     
-    # ── Abstract method — must implement in subclass ───────────
+    # ── Abstract method, must implement in subclass ───────────
     @abstractmethod
     def scrape(self) -> list[ScrapedListing]:
         """

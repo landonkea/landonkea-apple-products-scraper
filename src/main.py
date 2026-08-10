@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# Main orchestrator — runs all scrapers, analyzes prices, alerts
+# Main orchestrator, runs all scrapers, analyzes prices, alerts
 # ───────────────────────────────────────────────────────────────────
 # This is the entry point.  When `apple-product-scraper` is run (either
 # locally or via GitHub Actions), this script:
@@ -68,7 +68,7 @@ SCRAPER_CLASSES = {
     "newegg": NeweggScraper,
     "gazelle": GazelleScraper,
     "craigslist": CraigslistScraper,
-    # STUB — requires FACEBOOK_SESSION_COOKIE to do anything; stays
+    # STUB, requires FACEBOOK_SESSION_COOKIE to do anything; stays
     # inert (returns no listings) until that's set. See
     # scrapers/facebook.py and docs/marketplace-setup.md. Also
     # `enabled: false` in config.yaml, so it won't even run by default.
@@ -84,7 +84,7 @@ def get_enabled_scrapers(config: Config) -> list:
     Checks config.sites.<site>.enabled for each marketplace, and
     skips a site if its applicable_product_types is set and doesn't
     include the active search's product_type (see SiteConfig in
-    config.py — this is how an Apple-only storefront like Apple
+    config.py, this is how an Apple-only storefront like Apple
     Refurb automatically sits out a future non-electronics search
     instead of wasting a request and returning zero every time).
 
@@ -259,14 +259,14 @@ def expire_stale_listings(db, hours: int = 72) -> tuple[int, list[Listing]]:
 
     A listing that hasn't shown up in a scrape for 72+ hours is
     probably sold or removed, so it's excluded from "current deals"
-    going forward. Rows are kept (not deleted) — daily price-stat
+    going forward. Rows are kept (not deleted), daily price-stat
     history relies on past listings still being in the table.
 
     ALSO flags "scooped" great deals: listings that were flagged
     is_great_deal AND whose entire visible lifetime (first_seen_at to
     last_seen_at, i.e. from when we first saw it to the last time we
     saw it before it went stale) was under SCOOPED_DEAL_HOURS. That
-    combination — a great price that vanished fast — is a strong
+    combination, a great price that vanished fast, is a strong
     signal someone else bought it, which is worth surfacing on its
     own (see notifier.py's send_scooped_deal_alert).
 
@@ -313,7 +313,7 @@ def _run_one_search(
 
     WHAT: Everything needed to go from "a search config for one
     product" (e.g. MacBook Pro or iPhone) to alerts being sent, for
-    that product only — scrape all enabled sites, save/upsert results
+    that product only, scrape all enabled sites, save/upsert results
     to the DB, record daily price stats, compute deal scores, and
     notify if there are new listings or great deals.
     HOW: Points `config.search` at this iteration's `search_config`
@@ -327,7 +327,7 @@ def _run_one_search(
     ~150-line function that mixed one-time setup with per-product
     work. Extracting the loop body here means `run_scrape()` is now
     just "setup, then run one search per configured product, then
-    export," and this function's job — one product's full pipeline —
+    export," and this function's job, one product's full pipeline,
     can be read (and eventually tested) on its own.
 
     Args:
@@ -466,16 +466,16 @@ def _run_one_search(
         # against the real config.yaml/database without spamming the
         # real Discord channel.
         if new_listings or has_great_deals:
-            print(f"  [dry-run] Would send alert for {len(top_deals)} top deal(s) — skipped.")
+            print(f"  [dry-run] Would send alert for {len(top_deals)} top deal(s), skipped.")
         else:
-            print("  No new listings or great deals — skipping alert.")
+            print("  No new listings or great deals, skipping alert.")
         if price_drops:
-            print(f"  [dry-run] Would send price-drop alert for {len(price_drops)} listing(s) — skipped.")
+            print(f"  [dry-run] Would send price-drop alert for {len(price_drops)} listing(s), skipped.")
     else:
         if new_listings or has_great_deals:
             notifier.send_alert(top_deals, stats)
         else:
-            print("  No new listings or great deals — skipping alert.")
+            print("  No new listings or great deals, skipping alert.")
 
         # ── 2e-2. Send price-drop alerts ───────────────────
         # Independent of the "new deal" condition above -- a price
@@ -499,9 +499,9 @@ def run_scrape(config: Config) -> int:
         0 on success, 1 on error.
     """
     print(f"\n{'='*60}")
-    print("  Apple Product Scraper — Starting Run")
+    print("  Apple Product Scraper, Starting Run")
     print(f"  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
-    # Print the active environment prominently — this is the single
+    # Print the active environment prominently, this is the single
     # most important line in the banner for telling a real production
     # run apart from a local dev/staging test run at a glance.
     print(f"  Environment: {config.environment}")
@@ -510,35 +510,35 @@ def run_scrape(config: Config) -> int:
     # ── 1. Setup ───────────────────────────────────────────────
     print("📦 Initializing...")
 
-    # Database — get_session() runs Alembic migrations (upgrade to
+    # Database, get_session() runs Alembic migrations (upgrade to
     # "head") before returning, so the schema is always current
     # before any read/write below. See database.py's run_migrations().
     db = get_session(config.database.url)
     print(f"  [DB] Connected to {config.database.url}")
 
     # Expire listings we haven't seen in 72+ hours (probably sold/removed).
-    # Rows are kept, just excluded from "current deals" — price history
+    # Rows are kept, just excluded from "current deals", price history
     # stays intact for trend charts.
     expired_count, scooped_deals = expire_stale_listings(db, hours=72)
     print(f"  [DB] Expired {expired_count} listings not seen in 72+ hours")
 
     if scooped_deals:
         print(f"  🏃 {len(scooped_deals)} great deal(s) expired within "
-              f"{SCOOPED_DEAL_HOURS}h of first being seen — likely scooped:")
+              f"{SCOOPED_DEAL_HOURS}h of first being seen, likely scooped:")
         for scooped_listing in scooped_deals:
             print(f"      • ${scooped_listing.price_usd:,.0f} | "
                   f"{scooped_listing.source} | {scooped_listing.title[:60]}")
 
         if config.dry_run:
             print(f"  [dry-run] Would send scooped-deal alert for "
-                  f"{len(scooped_deals)} listing(s) — skipped.")
+                  f"{len(scooped_deals)} listing(s), skipped.")
         else:
             notifier = Notifier(config)
             notifier.send_scooped_deal_alert(scooped_deals)
 
     # Permanently delete listings that have been inactive for a long
     # time (see prune_old_inactive_listings() in database.py for why
-    # this is safe — the trend charts read from a separate, already-
+    # this is safe, the trend charts read from a separate, already-
     # aggregated table these rows never touch).
     pruned_count = prune_old_inactive_listings(db)
     print(f"  [DB] Pruned {pruned_count} listings inactive for {RETENTION_DAYS}+ days")
@@ -566,7 +566,7 @@ def run_scrape(config: Config) -> int:
                   f"matched or changed price...")
             if config.dry_run:
                 print(f"  [dry-run] Would send watchlist alert for "
-                      f"{len(watchlist_alerts)} listing(s) — skipped.")
+                      f"{len(watchlist_alerts)} listing(s), skipped.")
             else:
                 notifier = Notifier(config)
                 notifier.send_watchlist_alert(watchlist_alerts)
@@ -587,7 +587,7 @@ def run_scrape(config: Config) -> int:
 
     # ── 3. Summary ─────────────────────────────────────────────
     print(f"\n{'='*60}")
-    print(f"  ✅ Run complete — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
+    print(f"  ✅ Run complete, {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
     print(f"  Total active listings in DB: {db.query(Listing).filter(Listing.is_active == True).count()}")
     print(f"{'='*60}\n")
     

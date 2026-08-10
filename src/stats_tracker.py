@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# Daily price-stat tracker — feeds the trend charts
+# Daily price-stat tracker, feeds the trend charts
 # ───────────────────────────────────────────────────────────────────
 # Every scrape run, this rolls up the listings found for a search
 # into one min/avg/max row per product generation per day (e.g.
@@ -44,7 +44,7 @@ def record_daily_stats(db, search: SearchConfig, listings: list[Listing]) -> int
     """
     Roll up today's listings into per-generation min/avg/max rows.
 
-    Upserts one row per (today's date, group_key) — safe to call
+    Upserts one row per (today's date, group_key), safe to call
     multiple times per day (e.g. once per 6-hour run); each call
     overwrites today's row with the latest numbers. Groups with zero
     matching listings this run are left untouched (a temporary site

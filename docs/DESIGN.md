@@ -1,4 +1,4 @@
-# landonkea-apple-products-scraper — Design & Workflow
+# landonkea-apple-products-scraper - Design & Workflow
 
 ## High-Level Overview
 

@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# Price analyzer — computes deal scores and picks top deals
+# Price analyzer, computes deal scores and picks top deals
 # ───────────────────────────────────────────────────────────────────
 # Every scraped listing gets a "deal score" from 0 (bad) to 100
 # (amazing).  The score is based on:
@@ -51,12 +51,12 @@ SUSPICIOUS_PRICE_RATIO = 0.5   # under 50% of the batch median price
 SUSPICIOUS_MIN_SAMPLE = 3      # need at least this many listings for
                                 # "median" to be a meaningful reference
 SUSPICIOUS_CONDITION_KEYWORDS = ["new", "sealed", "brand new", "factory sealed"]
-SUSPICIOUS_TAG = "⚠️ VERIFY PRICE — "
+SUSPICIOUS_TAG = "⚠️ VERIFY PRICE, "
 
 
 # ── Per-source reliability bonus ───────────────────────────────────
 # WHAT: A small, source-specific nudge folded into every listing's
-# deal score — some marketplaces are simply more trustworthy than
+# deal score, some marketplaces are simply more trustworthy than
 # others (verified sellers, warranties, professional listings vs.
 # anonymous peer-to-peer classifieds with no recourse if something
 # goes wrong).
@@ -65,7 +65,7 @@ SUSPICIOUS_TAG = "⚠️ VERIFY PRICE — "
 # (professionally graded/warrantied stock, no anonymous sellers) get
 # the biggest trust bonus. Swappa/Gazelle/BestBuy/Newegg are also
 # seller-vetted or retailer-backed, so a smaller +1. eBay is treated
-# as neutral (0) — buyer protection exists but seller quality varies
+# as neutral (0), buyer protection exists but seller quality varies
 # enormously. Mercari and Facebook Marketplace skew towards casual
 # peer-to-peer sellers with thinner buyer protection, a small -1.
 # Craigslist and OfferUp have no built-in buyer protection or seller
@@ -519,12 +519,12 @@ class PriceAnalyzer:
         score += price_component
         breakdown["price_vs_median"] = round(price_component, 1)
 
-        # Factor 2: Condition bonus (weight: low) — universal across
+        # Factor 2: Condition bonus (weight: low), universal across
         # product types (a "new"/"excellent" boot is as much of a
         # plus as a "new"/"excellent" laptop). Includes the "Good" /
         # "Fair" grading tiers used by Swappa/BackMarket/Gazelle-style
         # condition grading (Excellent/Good/Fair) alongside "Excellent"
-        # above — "Good" previously fell through with no bonus at all
+        # above, "Good" previously fell through with no bonus at all
         # even though it's a real, better-than-baseline condition
         # grade; "Fair" is intentionally left with no bonus since it's
         # the bottom of that grading scale, equivalent to an ungraded
@@ -541,13 +541,13 @@ class PriceAnalyzer:
         score += condition_component
         breakdown["condition"] = condition_component
 
-        # Factor 2.5: per-source reliability nudge (weight: low) — see
+        # Factor 2.5: per-source reliability nudge (weight: low), see
         # DEFAULT_SOURCE_RELIABILITY_BONUS's module docstring.
         source_component = self._source_reliability_bonus(listing.source)
         score += source_component
         breakdown["source_reliability"] = source_component
 
-        # Factor 3: product-type-specific bonuses (weight: varies) —
+        # Factor 3: product-type-specific bonuses (weight: varies),
         # for electronics this is RAM tier, chip generation, core
         # count, screen size preference, and storage size. See
         # src/product_types/electronics.py's score_bonuses(). A future

@@ -55,7 +55,7 @@ def _make_search_config(**overrides) -> SearchConfig:
 
 
 class FakeScraper(BaseScraper):
-    """Minimal concrete BaseScraper subclass — scrape() is abstract
+    """Minimal concrete BaseScraper subclass, scrape() is abstract
     and unused by these tests, so it's stubbed out."""
 
     def scrape(self):

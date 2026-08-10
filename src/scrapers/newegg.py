@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────
-# Newegg scraper — fetches Refurbished/Used MacBook Pro (and, where
+# Newegg scraper, fetches Refurbished/Used MacBook Pro (and, where
 # available, iPhone) listings from newegg.com.
 # ─────────────────────────────────────────────────────────────────────
 # Newegg is a PC-hardware-focused electronics retailer that also runs
@@ -11,11 +11,11 @@
 # with a plain `requests.get` (realistic desktop UA, no cookies/session
 # warmup): HTTP 200, ~830KB HTML, and the listing grid (`.item-cell`,
 # `.item-title`, `.price-current`, etc.) is fully present in the raw
-# response — no JS rendering needed, unlike Best Buy/OfferUp. Newegg's
+# response, no JS rendering needed, unlike Best Buy/OfferUp. Newegg's
 # search results are server-side rendered.
 #
 # WHY THE QUERY IS A BARE PRODUCT NAME, NOT "<product> + chip/model
-# terms" (the eBay fix does NOT transfer here — verified, not assumed):
+# terms" (the eBay fix does NOT transfer here, verified, not assumed):
 # eBay's `_build_search_url` docstring documents that a bare-name query
 # sorted price-ascending buries real high-value listings behind 100+
 # pages of accessories, fixed there by appending the tracked chip/
@@ -26,7 +26,7 @@
 # they fit ("Case for MacBook Pro 14 inch ... M5 M4 M3 M2 M1") and that
 # becomes a stronger keyword match than a real listing that only
 # mentions one chip. A narrower query like "MacBook Pro 14-inch" is
-# also worse, not better — it was tested live and returns only 14
+# also worse, not better, it was tested live and returns only 14
 # results, most of them unrelated non-Apple 14" laptops (HP, Acer),
 # because Newegg treats "14-inch" as a generic spec term.
 #   The bare query "MacBook Pro" with NO sort param (Newegg's default
@@ -34,25 +34,25 @@
 # pages (~170 results) and stayed 80-100% real Apple MacBook Pro
 # listings per page (9, 12, 5, and 0 non-matches out of 44/48/41/36),
 # including real "M3 Max" listings on pages 2 and 4 ($2,050-$3,199).
-# Passing `&Order=1` (Newegg's price-ascending sort, confirmed live —
+# Passing `&Order=1` (Newegg's price-ascending sort, confirmed live,
 # first result becomes a $12.99 SSD adapter, then $108-123 decade-old
 # Intel MacBooks) reproduces the exact eBay bug, so it is deliberately
 # NOT used here. `is_likely_macbook_pro()` (from base.py) mops up the
 # remaining non-Apple/accessory noise.
 #
 # WHY IPHONE NEEDED NO SPECIAL-CASE (eBay's price-floor/storage-in-
-# query fix does NOT need to transfer here — verified, not assumed):
+# query fix does NOT need to transfer here, verified, not assumed):
 # eBay's docstring explains iPhone accessory titles legitimately
 # contain the full generation name ("Case for iPhone 15 Pro Max"),
 # which made a bare query on eBay return 122/122 sub-$5 accessories on
 # page 1. The identical bare query "iPhone Pro Max" was tested live
 # against Newegg and did NOT reproduce that failure: of the first 15
 # results, ~10 were real unlocked refurbished iPhones ($789-$1,184)
-# and only a handful were cases/screen protectors — Newegg's relevance
+# and only a handful were cases/screen protectors, Newegg's relevance
 # ranking already favors the phones. `is_likely_iphone()`'s existing
 # accessory-keyword + storage-capacity checks are therefore sufficient
 # without any extra price floor or storage term in the query string.
-# Newegg does carry real iPhone Pro Max inventory — it is not a
+# Newegg does carry real iPhone Pro Max inventory, it is not a
 # PC-only site in practice, at least for this product line.
 #
 # LISTING CARD STRUCTURE (from live HTML, not assumed):
@@ -86,7 +86,7 @@ class NeweggScraper(BaseScraper):
     Newegg is a third-party marketplace mixed in with first-party
     PC-hardware retail, so `is_likely_macbook_pro()` / `is_likely_iphone()`
     (from base.py) are what actually keep non-Apple/accessory noise out
-    — see the module docstring above for why the search query itself
+   , see the module docstring above for why the search query itself
     can't do all of that filtering (unlike the eBay scraper).
     """
 
@@ -101,7 +101,7 @@ class NeweggScraper(BaseScraper):
         """
         Build a Newegg search URL for the configured product.
 
-        Deliberately a bare product-name query with NO sort param —
+        Deliberately a bare product-name query with NO sort param,
         see the module docstring for the live-tested reasoning.
 
         Args:
@@ -246,7 +246,7 @@ class NeweggScraper(BaseScraper):
         HOW: Builds the page URL, fetches it, and parses out every
         `.item-cell`. Both failure modes below intentionally return an
         empty list rather than raising, so the caller can treat "fetch
-        failed" and "no more results" the same way (stop paginating) —
+        failed" and "no more results" the same way (stop paginating),
         that matches the original combined behavior of this scraper.
 
         WHY: Isolates the network+select step from the "loop over
@@ -269,7 +269,7 @@ class NeweggScraper(BaseScraper):
             return []
 
         soup = self.parse_html(html)
-        # No more results (or blocked) if this comes back empty —
+        # No more results (or blocked) if this comes back empty,
         # scrape() stops paginating either way.
         return soup.select(".item-cell")
 
@@ -285,7 +285,7 @@ class NeweggScraper(BaseScraper):
         dedup them into `found`/`found_ids` in place.
 
         WHY IN-PLACE: scrape() needs to track total found-count and
-        seen-ids across every page's cards, not just one page's — a
+        seen-ids across every page's cards, not just one page's, a
         shared mutable found/found_ids avoids re-threading that state
         through a return value on every call.
 
@@ -315,14 +315,14 @@ class NeweggScraper(BaseScraper):
 
         STRATEGY:
         A single bare-product-name query (no per-screen-size query
-        variants, unlike bestbuy.py) — see the module docstring for
+        variants, unlike bestbuy.py), see the module docstring for
         why appending screen-size/chip terms to the query actively
         hurts result quality on Newegg. Screen size and chip filtering
         happen post-parse via `passes_filters()` instead, same as
         every other field.
 
         Paginates up to MAX_PAGES pages (Newegg's default relevance
-        sort, no price sort — see module docstring) or until
+        sort, no price sort, see module docstring) or until
         `results_per_size` matches are collected, whichever comes
         first.
 

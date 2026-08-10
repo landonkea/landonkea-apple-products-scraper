@@ -1,7 +1,7 @@
 # Setting up login-gated marketplaces (like Facebook Marketplace)
 
 This guide is for marketplaces that this project can't search *at all*
-without being logged in — right now that's just Facebook Marketplace.
+without being logged in, right now that's just Facebook Marketplace.
 It's written assuming you've never done anything like this before, so
 it starts from the basics.
 
@@ -14,7 +14,7 @@ set it up. Everything below is for when you're ready.
 
 Most of the marketplaces this scraper already supports (eBay, Swappa,
 Mercari, OfferUp, Back Market, Best Buy, Newegg, Gazelle, Apple
-Refurbished) let anyone — even a logged-out visitor, even a script —
+Refurbished) let anyone, even a logged-out visitor, even a script,
 view their search results pages. That's why those scrapers can just
 send a normal web request to a search URL and get real results back.
 
@@ -30,18 +30,18 @@ you're already logged in. That's what a "session cookie" is for.
 ## What is a "session cookie," in plain terms?
 
 When you log into a website like Facebook, the website doesn't ask you
-to type your password again on every single page you visit — that
+to type your password again on every single page you visit, that
 would be exremely annoying. Instead, after you log in once, Facebook
 gives your browser a small piece of data called a **cookie**, and your
 browser automatically shows that cookie to Facebook on every
 subsequent request. Facebook checks the cookie and effectively says
-"oh, I recognize this — you're logged in as [you]," without asking for
+"oh, I recognize this, you're logged in as [you]," without asking for
 your password again.
 
 A **session cookie** is the specific cookie that represents "this
 browser is currently logged in." If you copy that cookie's value out
 of your own logged-in browser and hand it to a script, the script can
-include that same cookie on its own requests — and from Facebook's
+include that same cookie on its own requests, and from Facebook's
 point of view, those requests look like they're coming from your
 already-logged-in browser too.
 
@@ -64,7 +64,7 @@ A few important things to understand about this:
 
 ## The general idea of how you'd get one
 
-You won't do this by typing a command — you'll use your web browser's
+You won't do this by typing a command, you'll use your web browser's
 built-in **developer tools**, which let you peek at things the browser
 normally hides from you, including cookies. In broad strokes:
 
@@ -78,14 +78,14 @@ normally hides from you, including cookies. In broad strokes:
    This is where the browser lists cookies it's storing for the site
    you're on.
 4. Find the list of cookies for `facebook.com`. You'll see a table of
-   cookie names and values — this can look intimidating (there are
+   cookie names and values, this can look intimidating (there are
    often dozens), but you're looking for one specific one that
    represents your logged-in session.
-5. Copy that cookie's **value** (a long string of letters/numbers) —
+5. Copy that cookie's **value** (a long string of letters/numbers),
    not the whole row, just the value.
 6. That value is what gets set as the `FACEBOOK_SESSION_COOKIE`
    environment variable (locally in a `.env` file, or as a GitHub
-   Secret for the automated cron runs) — the same pattern this project
+   Secret for the automated cron runs), the same pattern this project
    already uses for things like `DISCORD_WEBHOOK_URL`.
 
 That's the general shape of it. I'm deliberately **not** giving you
@@ -97,7 +97,7 @@ version you're running.
 **When you're actually ready to set this up: just ask Claude to walk
 you through the current exact steps for your specific browser.**
 Claude can look at what browser and version you're using and give you
-precise, up-to-date, click-by-click instructions — and can also help
+precise, up-to-date, click-by-click instructions, and can also help
 you decide where to safely store the cookie value once you have it
 (`.env` file locally, GitHub Secrets for the automated runs) and
 double check you haven't accidentally pasted it anywhere it shouldn't
@@ -107,7 +107,7 @@ be, like a commit or a chat log.
 
 Once `FACEBOOK_SESSION_COOKIE` is set, `src/scrapers/facebook.py` will
 still need its actual fetch/parse logic filled in (right now it's a
-stub with a `# TODO` outline) before it can return real listings — and
+stub with a `# TODO` outline) before it can return real listings, and
 `facebook.enabled` in `config.yaml` needs to be flipped to `true`. Both
 of those are intentionally left for later, once the credential side of
 things is sorted out and can be tested against the real site.

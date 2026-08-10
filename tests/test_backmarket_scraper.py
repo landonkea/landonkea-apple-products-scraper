@@ -6,7 +6,7 @@
 # methods that turn already-fetched HTML/JSON into raw offer dicts
 # (and raw dicts into ScrapedListing objects). The network-calling
 # scrape()/_fetch_with_fallback() methods are intentionally NOT
-# tested here — see test_gazelle_scraper.py's module docstring for
+# tested here, see test_gazelle_scraper.py's module docstring for
 # why (needs live HTTP/Playwright access).
 #
 # HOW TO RUN:
@@ -31,7 +31,7 @@ def make_scraper(product_name="MacBook Pro"):
 
     WHY A FAKE CONFIG: the methods under test here (slug/title
     conversion, tile discovery, offer extraction) only ever read
-    self.config.search.product_name — a full real Config object
+    self.config.search.product_name, a full real Config object
     would need the entire dataclass tree built out for no benefit.
     """
     fake_search = SimpleNamespace(product_name=product_name, product_type="electronics")

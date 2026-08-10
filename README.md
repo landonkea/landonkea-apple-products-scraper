@@ -57,7 +57,7 @@ running on the schedule described in [Run Schedule](#run-schedule).
 Nothing about that workflow changes because a Docker image also exists.
 
 The image installs this project's dependencies plus Playwright's
-Chromium binary (`playwright install --with-deps chromium`) — needed
+Chromium binary (`playwright install --with-deps chromium`). Needed
 because several scrapers (eBay, Best Buy, OfferUp, Mercari, Back
 Market, Facebook) render pages with a real headless browser rather
 than plain HTTP requests. The rest of the scrapers (Swappa, Apple
@@ -67,7 +67,7 @@ and don't need it, but all scrapers share one process/image.
 ### docker compose (recommended for local dev)
 
 ```bash
-cp .env.example .env     # fill in your own values, or leave blank —
+cp .env.example .env     # fill in your own values, or leave blank.
                           # ENVIRONMENT defaults to dev, which just
                           # logs alerts instead of posting them
 
@@ -156,7 +156,7 @@ A third alert type: when a listing flagged `is_great_deal` goes inactive (see `e
 A fourth alert type, and the only one driven by a human decision rather than the scraper's own scoring: track one specific listing (found by hand, e.g. an eBay auction with unusual RAM/storage that would never match a configured search) and get alerted whenever it's seen again or its price changes, regardless of deal score.
 
 **How it works:**
-1. Add an entry to `data/watchlist.json` (`data/watchlist.dev.json` locally — see [Environments](#environments)):
+1. Add an entry to `data/watchlist.json` (`data/watchlist.dev.json` locally, see [Environments](#environments)):
    ```json
    [
      { "url": "https://www.ebay.com/itm/123456789", "note": "must buy under $3500" }
@@ -167,7 +167,7 @@ A fourth alert type, and the only one driven by a human decision rather than the
 3. `find_watchlist_alerts()` narrows matches down to ones actually worth alerting on: first sighting, or a price change (up **or** down, unlike price-drop alerts, a watched listing's price rising is just as relevant to a buy-now-or-wait decision) since the last alert.
 4. A dedicated "🔭 Watchlist Alert" Discord message fires (`Notifier.send_watchlist_alert()`), and the entry's `last_alerted_price`/`last_alerted_at` are updated so an unchanged price doesn't re-alert every 6-hour run.
 
-An entry with no match in a given run (not currently listed, sold, or a marketplace's scraper hit an error) is simply skipped — not an error.
+An entry with no match in a given run (not currently listed, sold, or a marketplace's scraper hit an error) is simply skipped, not an error.
 
 ## Score Transparency & Apple Refurb Baseline
 
@@ -181,17 +181,17 @@ Both `deal_score_breakdown` and the Apple-refurb comparison fields are runtime-o
 
 ## Apple Vision Pro
 
-`src/product_types/vision_pro.py` is a third `ProductTypeHandler` — Apple's headset. It's live in production (an active `searches:` entry in `config.yaml`), unlike apparel below. It's a dedicated handler rather than an `electronics.py` search entry because Vision Pro doesn't fit that shape at all: no RAM configuration option, no "Pro"/"Max" chip tier, and `ElectronicsHandler.is_relevant()` only special-cases MacBook/iPhone/iPad — anything else falls through to "always relevant," which would let every case/light-seal/battery-cable/prescription-lens-insert accessory listing straight through unfiltered.
+`src/product_types/vision_pro.py` is a third `ProductTypeHandler`, Apple's headset. It's live in production (an active `searches:` entry in `config.yaml`), unlike apparel below. It's a dedicated handler rather than an `electronics.py` search entry because Vision Pro doesn't fit that shape at all: no RAM configuration option, no "Pro"/"Max" chip tier, and `ElectronicsHandler.is_relevant()` only special-cases MacBook/iPhone/iPad. Anything else falls through to "always relevant," which would let every case/light-seal/battery-cable/prescription-lens-insert accessory listing straight through unfiltered.
 
-**Hardware covered**: there is no "Vision Pro 2" — Apple has announced only one redesign-free internal refresh so far, upgrading the original Feb 2024 launch unit's M2 chip to M5 (plus a new Dual Knit Band) on Oct 22, 2025. The scraper matches both by storage tier (256GB/512GB/1TB — reusing `electronics.py`'s existing `extract_storage_gb()`/`extract_chip()`, since those fields parse identically for Vision Pro titles), with score bonuses weighted so the newer M5 chip and larger storage tiers rank toward the top of an alert (+8 for M5, +12/+6/+0 for 1TB/512GB/256GB) — tunable in `src/product_types/vision_pro.py`'s `STORAGE_TIERS` if the weighting ever needs revisiting.
+**Hardware covered**: there is no "Vision Pro 2". Apple has announced only one redesign-free internal refresh so far, upgrading the original Feb 2024 launch unit's M2 chip to M5 (plus a new Dual Knit Band) on Oct 22, 2025. The scraper matches both by storage tier (256GB/512GB/1TB, reusing `electronics.py`'s existing `extract_storage_gb()`/`extract_chip()`, since those fields parse identically for Vision Pro titles), with score bonuses weighted so the newer M5 chip and larger storage tiers rank toward the top of an alert (+8 for M5, +12/+6/+0 for 1TB/512GB/256GB). Tunable in `src/product_types/vision_pro.py`'s `STORAGE_TIERS` if the weighting ever needs revisiting.
 
-**Price thresholds** (`config.yaml`'s `great_deal_usd`/`good_deal_usd`) are keyed by `storage_gb` instead of `ram_gb`, researched against Aug 2026 market data: new retail is $3,499/$3,699/$3,899 for 256GB/512GB/1TB, and used/resale (eBay, Swappa) was running roughly $1,700-1,800 for 256GB and $1,900-2,200 for 512GB/1TB — great-deal thresholds are set ~20-26% below that. `PriceAnalyzer._threshold_key()` picks `ram_gb` when set, else `storage_gb`, so this doesn't collide with MacBook/iPad's RAM-keyed thresholds (a MacBook/iPad listing always has `ram_gb` set; a Vision Pro listing never does) — this fallback also fixed a latent bug where any RAM-less listing (this previously included iPhone) silently defaulted to the MacBook 64GB tier's thresholds instead of a sane default.
+**Price thresholds** (`config.yaml`'s `great_deal_usd`/`good_deal_usd`) are keyed by `storage_gb` instead of `ram_gb`, researched against Aug 2026 market data: new retail is $3,499/$3,699/$3,899 for 256GB/512GB/1TB, and used/resale (eBay, Swappa) was running roughly $1,700-1,800 for 256GB and $1,900-2,200 for 512GB/1TB. Great-deal thresholds are set ~20-26% below that. `PriceAnalyzer._threshold_key()` picks `ram_gb` when set, else `storage_gb`, so this doesn't collide with MacBook/iPad's RAM-keyed thresholds (a MacBook/iPad listing always has `ram_gb` set; a Vision Pro listing never does). This fallback also fixed a latent bug where any RAM-less listing (this previously included iPhone) silently defaulted to the MacBook 64GB tier's thresholds instead of a sane default.
 
-**Storefront coverage**: same pattern as apparel below — the general marketplaces (eBay, Swappa, Mercari, OfferUp, BackMarket, Craigslist, Facebook) cover it for free since they build queries from `product_name` alone. The Apple-only storefronts (Apple Refurb, BestBuy, Newegg, Gazelle) do **not** search it yet — they're still scoped to `applicable_product_types: [electronics]`, and several of them (Apple Refurb, Gazelle) hit hardcoded per-generation URLs that would need real scraper changes, not just a config flip, to add Vision Pro coverage. That's optional follow-up work, not required for the general-marketplace coverage to alert on real deals today.
+**Storefront coverage**: same pattern as apparel below. The general marketplaces (eBay, Swappa, Mercari, OfferUp, BackMarket, Craigslist, Facebook) cover it for free since they build queries from `product_name` alone. The Apple-only storefronts (Apple Refurb, BestBuy, Newegg, Gazelle) do **not** search it yet. They're still scoped to `applicable_product_types: [electronics]`, and several of them (Apple Refurb, Gazelle) hit hardcoded per-generation URLs that would need real scraper changes, not just a config flip, to add Vision Pro coverage. That's optional follow-up work, not required for the general-marketplace coverage to alert on real deals today.
 
 ## Second Product Type: Apparel (Architecture Proof)
 
-`src/product_types/apparel.py` is a second, real `ProductTypeHandler` implementation — boots, not Apple hardware. It exists to prove the pluggable product-type architecture (`src/product_types/base.py`) actually generalizes to a category with a completely different field set, not just different constants plugged into the electronics shape:
+`src/product_types/apparel.py` is a second, real `ProductTypeHandler` implementation, boots, not Apple hardware. It exists to prove the pluggable product-type architecture (`src/product_types/base.py`) actually generalizes to a category with a completely different field set, not just different constants plugged into the electronics shape:
 
 | | electronics.py | apparel.py |
 |---|---|---|
@@ -223,7 +223,7 @@ See `.env.example` for the full list with descriptions. Locally these go in a `.
 | `bestbuy.py` | Best Buy | Playwright for JS-rendered search results |
 | `gazelle.py` | Gazelle | Plain HTTP + HTML parsing |
 | `newegg.py` | Newegg | Plain HTTP + HTML parsing |
-| `craigslist.py` | Craigslist | Plain HTTP + HTML parsing; config-driven list of metro regions (`sites.craigslist.regions`, defaults to `["phoenix"]`) — loops over every configured region (e.g. AZ/NM/CA/UT/NV/CO metros) to cover multiple states in one run |
+| `craigslist.py` | Craigslist | Plain HTTP + HTML parsing; config-driven list of metro regions (`sites.craigslist.regions`, defaults to `["phoenix"]`). Loops over every configured region (e.g. AZ/NM/CA/UT/NV/CO metros) to cover multiple states in one run |
 | `offerup.py` | OfferUp | Playwright, login-gated stub |
 | `facebook.py` | Facebook Marketplace | Login-gated stub, inert until `FACEBOOK_SESSION_COOKIE` is set |
 
@@ -249,8 +249,8 @@ Every firing does a real scrape, there's no separate gating step deciding whethe
 Schema changes are managed with [Alembic](https://alembic.sqlalchemy.org/), not manual `ALTER TABLE`s. Migrations live in `migrations/versions/` and run automatically, `src/database.py`'s `get_session()` calls `run_migrations()` (Alembic's `upgrade head`, invoked programmatically) every time the scraper starts, before any read/write happens. This means.
 
 - A fresh, empty database gets every table created from scratch.
-- An existing database (dev/staging/production) only has whatever's actually missing applied — already-current databases are a no-op.
-- There's nothing to remember to run manually — `python -m main` (locally, in Docker, or in CI) always leaves the database at the latest schema first.
+- An existing database (dev/staging/production) only has whatever's actually missing applied. Already-current databases are a no-op.
+- There's nothing to remember to run manually. `python -m main` (locally, in Docker, or in CI) always leaves the database at the latest schema first.
 
 `migrations/versions/0001_baseline_schema.py` is the starting point: it reproduces exactly what this project's schema looked like right before Alembic was introduced (previously kept current by a hand-rolled `_ensure_columns()` ALTER-TABLE stopgap in `database.py`, now removed). It's written to be safe to run against a brand-new database, an already-fully-migrated one, or an old database still missing a few of the newer optional columns (`cpu_cores`/`gpu_cores`/`size`/`brand`/`color`), see that file's docstring for why it guards every operation instead of calling `create_table`/`add_column` unconditionally.
 
@@ -277,7 +277,7 @@ src/
 ├── product_types/
 │   ├── base.py                # ProductTypeHandler interface
 │   ├── electronics.py         # Apple hardware implementation (MacBook Pro/iPhone)
-│   └── apparel.py             # Boots implementation — second category, not live in config.yaml
+│   └── apparel.py             # Boots implementation, second category, not live in config.yaml
 └── scrapers/
     ├── base.py                # BaseScraper ABC (rate limiting, dispatch to product_types)
     ├── ebay.py, swappa.py, apple_refurb.py, backmarket.py,
@@ -296,7 +296,7 @@ docs/
 migrations/
 ├── env.py                     # Alembic environment (points at src/database.py's models)
 └── versions/
-    └── 0001_baseline_schema.py  # baseline revision — see "Database Migrations" above
+    └── 0001_baseline_schema.py  # baseline revision, see "Database Migrations" above
 alembic.ini                    # Alembic config (script_location, default/CLI database URL)
 Dockerfile                     # container image (alternative runtime, see "Running with Docker")
 docker-compose.yml             # local-dev container run, mounts data/ + config.yaml
@@ -315,7 +315,7 @@ mypy src/
 
 `scripts/run_tests_with_report.sh` runs all three of the commands
 above and writes a regenerated, human-readable summary to
-`test-results/latest.md` — a timestamp, a one-line pass/fail status
+`test-results/latest.md`: a timestamp, a one-line pass/fail status
 for each tool, pytest's pass/fail/error/skip counts, and the full
 list of any failing tests (plus the ruff/mypy output when they fail).
 `test-results/latest.md` is gitignored (see `test-results/.gitignore`)

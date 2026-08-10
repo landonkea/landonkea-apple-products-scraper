@@ -2,7 +2,7 @@
 # GitHub Pages data generator
 # ───────────────────────────────────────────────────────────────────
 # Reads the daily_price_stats table and writes docs/data/daily_stats.json
-# — the data file the GitHub Pages site (docs/index.html) fetches to
+#, the data file the GitHub Pages site (docs/index.html) fetches to
 # draw the price trend charts. Runs once per scrape, after all
 # searches finish.
 # ───────────────────────────────────────────────────────────────────

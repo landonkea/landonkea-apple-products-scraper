@@ -7,7 +7,7 @@
 # module docstring's "LIVE-TESTING FINDINGS", confirmed via live
 # `curl` fetches against www.craigslist.org) and check what each
 # parsing helper extracts from them. The network-calling scrape()
-# method itself is intentionally NOT tested here — it needs live HTTP
+# method itself is intentionally NOT tested here, it needs live HTTP
 # access, which isn't how this project's test suite works (see
 # test_scrapers.py).
 #
@@ -32,7 +32,7 @@ def make_scraper(product_name="MacBook Pro", regions=None, absolute_max_usd=8000
 
     WHY A FAKE CONFIG: The parsing/URL-building helpers under test
     here only ever read config.search.product_name, config.price.
-    absolute_max_usd, and config.sites.craigslist.regions — a
+    absolute_max_usd, and config.sites.craigslist.regions, a
     SimpleNamespace covering just those fields avoids building out a
     full Config dataclass tree for no benefit (same pattern as
     test_newegg_scraper.py / test_gazelle_scraper.py).
@@ -91,7 +91,7 @@ def test_build_search_url_reflects_given_region():
 
 def test_build_search_url_takes_region_as_argument_not_config():
     """_build_search_url() builds a URL for whatever region is passed in,
-    independent of what's configured — scrape() calls it once per region."""
+    independent of what's configured, scrape() calls it once per region."""
     scraper = make_scraper("MacBook Pro", regions=["phoenix"], absolute_max_usd=1000)
     url = scraper._build_search_url("sfbay")
     assert url.startswith("https://www.craigslist.org/search/area/sfbay")
@@ -159,7 +159,7 @@ def test_parse_single_item_extracts_all_fields():
     )
     assert listing.listing_id == "craigslist-c9yAuUSPCiAE7juezJsoux"
     assert listing.location == "Phoenix"
-    # Craigslist has no structured condition field — always None,
+    # Craigslist has no structured condition field, always None,
     # honestly, per the module docstring.
     assert listing.condition is None
     # Specs get parsed out of the title via parse_common_specs().
@@ -218,7 +218,7 @@ def test_parse_single_item_location_none_when_missing():
     assert listing.location is None
 
 
-# ── scrape() — multi-region looping ─────────────────────────────────
+# ── scrape(), multi-region looping ─────────────────────────────────
 # scrape() itself needs live HTTP for _fetch_cards()'s fetch_page()
 # call, so these tests mock _fetch_cards() directly (network-free,
 # same spirit as the rest of this file) to verify the multi-region
@@ -246,7 +246,7 @@ def test_scrape_aggregates_across_all_configured_regions(monkeypatch):
     # passes_filters() delegates to the electronics ProductTypeHandler,
     # which needs a full SearchConfig (chip_options, model_keywords,
     # etc.) that the minimal fake_search in make_scraper() doesn't
-    # build — not what these tests are checking (that's covered
+    # build, not what these tests are checking (that's covered
     # elsewhere), so it's stubbed to always-pass here.
     monkeypatch.setattr(scraper, "passes_filters", lambda listing: True)
 
@@ -268,7 +268,7 @@ def test_scrape_stops_once_results_per_size_reached(monkeypatch):
     # passes_filters() delegates to the electronics ProductTypeHandler,
     # which needs a full SearchConfig (chip_options, model_keywords,
     # etc.) that the minimal fake_search in make_scraper() doesn't
-    # build — not what these tests are checking (that's covered
+    # build, not what these tests are checking (that's covered
     # elsewhere), so it's stubbed to always-pass here.
     monkeypatch.setattr(scraper, "passes_filters", lambda listing: True)
 
@@ -280,7 +280,7 @@ def test_scrape_stops_once_results_per_size_reached(monkeypatch):
 
 def test_scrape_dedupes_listing_id_across_regions(monkeypatch):
     scraper = make_scraper(regions=["phoenix", "tucson"], results_per_size=30)
-    # Same listing_id ("dupe") appears under both regions — only
+    # Same listing_id ("dupe") appears under both regions, only
     # counted once.
     cards_by_region = {
         "phoenix": [_card("dupe")],
@@ -290,7 +290,7 @@ def test_scrape_dedupes_listing_id_across_regions(monkeypatch):
     # passes_filters() delegates to the electronics ProductTypeHandler,
     # which needs a full SearchConfig (chip_options, model_keywords,
     # etc.) that the minimal fake_search in make_scraper() doesn't
-    # build — not what these tests are checking (that's covered
+    # build, not what these tests are checking (that's covered
     # elsewhere), so it's stubbed to always-pass here.
     monkeypatch.setattr(scraper, "passes_filters", lambda listing: True)
 
@@ -311,7 +311,7 @@ def test_scrape_continues_past_a_region_with_no_cards(monkeypatch):
     # passes_filters() delegates to the electronics ProductTypeHandler,
     # which needs a full SearchConfig (chip_options, model_keywords,
     # etc.) that the minimal fake_search in make_scraper() doesn't
-    # build — not what these tests are checking (that's covered
+    # build, not what these tests are checking (that's covered
     # elsewhere), so it's stubbed to always-pass here.
     monkeypatch.setattr(scraper, "passes_filters", lambda listing: True)
 

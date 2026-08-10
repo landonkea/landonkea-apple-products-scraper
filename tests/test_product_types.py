@@ -7,7 +7,7 @@
 # PriceAnalyzer's scoring delegates its product-specific bonuses too.
 # The underlying electronics logic itself (chip/RAM regex parsing,
 # accessory filtering, etc.) is already covered by test_scrapers.py
-# and test_price_analyzer.py — these tests are about the DISPATCH,
+# and test_price_analyzer.py, these tests are about the DISPATCH,
 # not re-testing that logic.
 #
 # HOW TO RUN:
@@ -45,7 +45,7 @@ def _make_search_config(**overrides) -> SearchConfig:
 
 
 class FakeScraper(BaseScraper):
-    """Minimal concrete BaseScraper subclass — scrape() is abstract
+    """Minimal concrete BaseScraper subclass, scrape() is abstract
     and unused by these tests, so it's stubbed out."""
 
     def scrape(self):

@@ -1,8 +1,8 @@
 # ───────────────────────────────────────────────────────────────────
-# Product type interface — the extension point for new categories
+# Product type interface, the extension point for new categories
 # ───────────────────────────────────────────────────────────────────
 # WHAT: This file defines the contract every "product type" (a
-# category of thing to search for — electronics, and eventually
+# category of thing to search for, electronics, and eventually
 # things like apparel) must implement.
 #
 # WHY THIS EXISTS: Everything about matching/scoring a listing used
@@ -10,14 +10,14 @@
 # That logic now lives in src/product_types/electronics.py as the
 # first implementation of this interface, so the scraping pipeline
 # itself (BaseScraper, PriceAnalyzer) no longer assumes "the thing
-# being searched for has a chip and RAM" — it just asks whichever
+# being searched for has a chip and RAM", it just asks whichever
 # ProductTypeHandler is active.
 #
 # THIS PLAN HAS BEEN VALIDATED: src/product_types/apparel.py (boots)
 # is a real second implementation, following exactly the steps below.
 # It's registered in PRODUCT_TYPES but has no active `searches:` entry
 # in config.yaml (see the commented-out example there and this file's
-# module docstring) — it stays inert in production, but every layer
+# module docstring), it stays inert in production, but every layer
 # of the plan below (steps 1-5) is exercised by
 # tests/test_product_types_apparel.py, including a real
 # get_enabled_scrapers() check proving step 4 needed zero code changes
@@ -28,7 +28,7 @@
 #
 # HOW TO ADD A NEW PRODUCT TYPE (e.g. "apparel" for boots):
 #   1. Create src/product_types/apparel.py implementing every method
-#      below (use electronics.py as a structural reference — same
+#      below (use electronics.py as a structural reference, same
 #      shape, different fields: size/brand/color instead of
 #      chip/RAM/storage).
 #   2. Register it in src/product_types/__init__.py's PRODUCT_TYPES
@@ -41,12 +41,12 @@
 #      (Apple Refurb, BestBuy, Newegg, Gazelle) so they're
 #      automatically skipped for an apparel search instead of
 #      wasting a request. General marketplaces (eBay, Swappa,
-#      Mercari, OfferUp, BackMarket) need no change — they already
+#      Mercari, OfferUp, BackMarket) need no change, they already
 #      build their queries from product_name alone.
 #   5. eBay/Swappa/Mercari/OfferUp/BackMarket will search apparel for
 #      free with just the config above. A site that ONLY sells boots
 #      (e.g. Zappos, Nordstrom Rack) still needs its own scraper
-#      written the same way src/scrapers/backmarket.py was — this
+#      written the same way src/scrapers/backmarket.py was, this
 #      interface makes the matching/scoring pipeline reusable, not
 #      the individual retailer integrations.
 # ───────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ class ProductTypeHandler(ABC):
 
     BaseScraper.parse_common_specs() / passes_filters() and
     PriceAnalyzer._score_listing() call into whichever handler is
-    registered for the active search's `product_type` — they never
+    registered for the active search's `product_type`, they never
     contain category-specific logic themselves.
     """
 
@@ -85,10 +85,10 @@ class ProductTypeHandler(ABC):
     def is_relevant(self, title: str, search, condition: Optional[str] = None) -> bool:
         """
         Reject accessories/off-topic listings before real spec
-        matching even runs — e.g. a phone case that mentions the
+        matching even runs, e.g. a phone case that mentions the
         phone's name, or a "for parts" listing.
 
-        `search` is the active SearchConfig — needed because which
+        `search` is the active SearchConfig, needed because which
         relevance rules apply can depend on what's being searched for
         (e.g. electronics uses different accessory keyword lists for
         "MacBook Pro" vs "iPhone" searches).

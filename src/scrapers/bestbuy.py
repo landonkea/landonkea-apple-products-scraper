@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────
-# Best Buy scraper — fetches Open Box MacBook listings
+# Best Buy scraper, fetches Open Box MacBook listings
 # ─────────────────────────────────────────────────────────────────────
-# Best Buy sells "Open Box" items — products that were returned by
+# Best Buy sells "Open Box" items, products that were returned by
 # customers and resold at a discount.  These can be excellent deals:
 # sometimes 10-30% off retail for what's essentially a new product.
 #

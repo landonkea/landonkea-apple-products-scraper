@@ -38,23 +38,23 @@ class eBayScraper(BaseScraper):
         only fetches page 1 (~100-120 items) with no pagination. A bare
         "MacBook Pro 14-inch" query sorted price-ascending returns cases,
         screen protectors, and base-chip listings under $300 before it
-        ever reaches a $2,000+ M5/M4/M3 Max machine — page 1 never
+        ever reaches a $2,000+ M5/M4/M3 Max machine, page 1 never
         contains a single matching listing. Appending the generations
         we actually want as an eBay OR-group (`(M5 Max,M4 Max,M3 Max)`
-        — eBay's comma-in-parentheses syntax for "any of these terms")
+       , eBay's comma-in-parentheses syntax for "any of these terms")
         makes eBay's own search put matching listings on page 1 instead
         of relying on client-side filtering of an irrelevant page.
 
         WHY a minimum-price floor is also needed (iPhone specifically):
-        the OR-group alone isn't enough for iPhone — a real production
+        the OR-group alone isn't enough for iPhone, a real production
         check found page 1 of "iPhone Pro Max (iPhone 17 Pro Max,...)"
         was 122/122 items, ALL $0.99-$4.95 accessories (screen
         protectors, camera lens covers, USB-C dust plugs, adhesive
         tape, antenna boosters...), because accessory titles routinely
         contain "iPhone 15 Pro Max" etc. (it's compatibility text, not
-        spec text) — so eBay's relevance ranking can't distinguish them
+        spec text), so eBay's relevance ranking can't distinguish them
         from real phones the way it can for MacBook chip names. A
-        negative-keyword blacklist doesn't scale here — sellers use
+        negative-keyword blacklist doesn't scale here, sellers use
         far too many accessory-category terms to enumerate. eBay's
         `_udlo` (price floor) parameter is more robust: it excludes
         every sub-$100 listing at the source, regardless of category,
@@ -74,7 +74,7 @@ class eBayScraper(BaseScraper):
         else:
             query = product
 
-        # Narrow eBay's own ranking to the generations we're tracking —
+        # Narrow eBay's own ranking to the generations we're tracking,
         # see the docstring above for why this is necessary, not optional.
         generation_terms = self.config.search.chip_options or self.config.search.model_keywords
         if generation_terms:
@@ -82,14 +82,14 @@ class eBayScraper(BaseScraper):
 
         if "iphone" in product.lower():
             # Negative keywords AND a price floor both proved
-            # insufficient in practice — eBay's iPhone-accessory
+            # insufficient in practice, eBay's iPhone-accessory
             # long tail is effectively infinite (gimbal stabilizers,
             # camera lens attachments, keyboards, OEM parts...), and
             # designer/luxury cases price right at $100+, so no
             # blacklist or floor fully clears page 1. What actually
             # works: requiring a storage-capacity term, since real
             # phone listings always state it ("256GB", "1TB") and
-            # accessories essentially never do — this is a positive
+            # accessories essentially never do, this is a positive
             # signal instead of an unwinnable exclusion list.
             storage_terms = []
             if self.config.search.storage_gb_min and self.config.search.storage_gb_min >= 1000:
@@ -99,7 +99,7 @@ class eBayScraper(BaseScraper):
 
         encoded_query = query.replace(" ", "+")
 
-        # Server-side price floor — cheap defense-in-depth alongside
+        # Server-side price floor, cheap defense-in-depth alongside
         # the storage-term requirement above.
         min_price = MINIMUM_IPHONE_PRICE_USD if "iphone" in product.lower() else MINIMUM_PRICE_USD
 

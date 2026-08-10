@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# OfferUp scraper — uses Playwright + extracts data from Next.js
+# OfferUp scraper, uses Playwright + extracts data from Next.js
 # ───────────────────────────────────────────────────────────────────
 # OfferUp is a peer-to-peer marketplace (like Craigslist but
 # mobile-first).  Good for finding local deals on used MacBooks.
@@ -104,7 +104,7 @@ class OfferUpScraper(BaseScraper):
         strategies until one yields listings.
 
         WHY A FALLBACK CHAIN: OfferUp is a JS-heavy React app whose
-        page structure is inconsistent — anti-bot measures, A/B tests,
+        page structure is inconsistent, anti-bot measures, A/B tests,
         and partial renders mean no single extraction approach works
         reliably every time. Trying cheaper/more-structured strategies
         first (embedded JSON) before falling back to messier ones
@@ -112,10 +112,10 @@ class OfferUpScraper(BaseScraper):
         while keeping the common case fast.
 
         Strategies tried in order, per page load:
-          1. _try_next_data   — Next.js __NEXT_DATA__ embedded JSON
-          2. _try_json_ld     — JSON-LD structured data <script> tags
-          3. _try_rendered_dom — rendered card elements after extra JS wait
-          4. _try_html_links  — regex/CSS scan for /item/detail/ links
+          1. _try_next_data  , Next.js __NEXT_DATA__ embedded JSON
+          2. _try_json_ld    , JSON-LD structured data <script> tags
+          3. _try_rendered_dom, rendered card elements after extra JS wait
+          4. _try_html_links , regex/CSS scan for /item/detail/ links
 
         Args:
             url: The OfferUp search URL.
@@ -207,7 +207,7 @@ class OfferUpScraper(BaseScraper):
         WHY THIS APPROACH: __NEXT_DATA__ is the raw server-rendered
         state React hydrates from. It's populated before OfferUp's
         anti-bot logic can strip content, and it's structured JSON
-        rather than HTML we'd have to scrape — so it's the fastest
+        rather than HTML we'd have to scrape, so it's the fastest
         and most reliable source when present.
 
         Args:
@@ -389,7 +389,7 @@ class OfferUpScraper(BaseScraper):
         HTML (title from the link text/aria-label, price from a nearby
         sibling element if present).
 
-        WHY THIS APPROACH: This is the last-resort strategy — it makes
+        WHY THIS APPROACH: This is the last-resort strategy, it makes
         the fewest assumptions about page structure (just "there's a
         link to an item detail page somewhere") so it's the most
         resilient to layout changes, but it also produces the least

@@ -3,7 +3,7 @@
 # ───────────────────────────────────────────────────────────────────
 # Reads config.yaml and makes every setting available as Python
 # objects.  This way the rest of the code never worries about
-# YAML parsing — it just asks `config.search.chip`.
+# YAML parsing, it just asks `config.search.chip`.
 # ───────────────────────────────────────────────────────────────────
 
 import os
@@ -16,7 +16,7 @@ from environment import get_environment
 
 # ── Helper: merge env vars into config ─────────────────────────────
 # Some settings (passwords, webhook URLs) should NEVER be in
-# config.yaml — they come from environment variables (GitHub Secrets).
+# config.yaml, they come from environment variables (GitHub Secrets).
 def _load_env_secrets() -> dict:
     """
     Load alert credentials from environment variables.
@@ -36,7 +36,7 @@ def _load_env_secrets() -> dict:
         "discord_webhook_url_dev": os.environ.get("DISCORD_WEBHOOK_URL_DEV"),
         # Facebook Marketplace requires a logged-in session to search at
         # all (unlike ebay/swappa/etc. which are public). There's no
-        # username/password login flow implemented here — instead, the
+        # username/password login flow implemented here, instead, the
         # site config expects a copied-out browser session cookie value.
         # See scrapers/facebook.py and docs/marketplace-setup.md.
         "facebook_session_cookie": os.environ.get("FACEBOOK_SESSION_COOKIE"),
@@ -46,7 +46,7 @@ def _load_env_secrets() -> dict:
 # ── Typed config classes ───────────────────────────────────────────
 # Each class holds one section of config.yaml.
 # Using `@dataclass` means Python auto-generates the __init__
-# method — we don't have to write boilerplate.
+# method, we don't have to write boilerplate.
 
 @dataclass
 class SearchConfig:
@@ -63,7 +63,7 @@ class SearchConfig:
     location: Optional[str]
     # ── Product type (see src/product_types/) ──────────────────
     # Which ProductTypeHandler owns matching/scoring for this search.
-    # Defaults to "electronics" (MacBook Pro / iPhone — the only type
+    # Defaults to "electronics" (MacBook Pro / iPhone, the only type
     # that exists today), so existing config.yaml entries need no
     # changes to keep working exactly as before. A future category
     # (e.g. "apparel") sets this to its own registered type name.
@@ -74,7 +74,7 @@ class SearchConfig:
     # Defaults to False so existing config.yaml entries keep working.
     cellular: bool = False
     # ── Generation-window fields (set when a search opts into a
-    # `generation_family` — see _expand_generation() below).  Left
+    # `generation_family`, see _expand_generation() below).  Left
     # at their defaults for manually-configured searches, which
     # keeps old-style single-chip config.yaml entries working as-is.
     chip_options: list[str] = field(default_factory=list)
@@ -130,7 +130,7 @@ class PriceDropConfig:
 
     Mirrors PriceConfig's style (plain numeric thresholds, no nested
     logic) but requires BOTH a minimum percent AND minimum dollar
-    drop before alerting — a percent-only rule would fire on tiny
+    drop before alerting, a percent-only rule would fire on tiny
     drops for expensive items (e.g. 5% of $8,000 = $400, fine) while
     a dollar-only rule would fire on trivial drops for cheap items
     (e.g. $50 off a $150,000... not applicable here, but the same
@@ -151,7 +151,7 @@ class SiteConfig:
     search_url: str = ""
     base_url: str = ""
     # Which product_type values this site can ever return results for.
-    # None (the default) means "applies to every product type" — the
+    # None (the default) means "applies to every product type", the
     # right default for general marketplaces (eBay, Swappa, Mercari,
     # OfferUp, BackMarket) that build queries from product_name alone.
     # Storefronts that only ever carry electronics (Apple Refurb,
@@ -160,12 +160,12 @@ class SiteConfig:
     # request and returning zero every time.
     applicable_product_types: Optional[list[str]] = None
     # Craigslist-specific: the list of metro region slugs to search
-    # (e.g. ["phoenix", "tucson", "losangeles"]) — Craigslist is
+    # (e.g. ["phoenix", "tucson", "losangeles"]), Craigslist is
     # organized by city/metro, not by state, so a single state maps to
     # multiple region slugs and this needs to be a list, not a single
     # string, to "cast a wide net" across several states in one run.
     # None/empty (the default) means the scraper falls back to its own
-    # DEFAULT_REGIONS (just Phoenix). Unused by every other site — see
+    # DEFAULT_REGIONS (just Phoenix). Unused by every other site, see
     # scrapers/craigslist.py's module docstring for why this needs to
     # be config-driven rather than hardcoded, and for which region
     # slugs were verified live.
@@ -220,7 +220,7 @@ class DatabaseConfig:
 # e.g. "sqlite:///data/listings.db") which GitHub Actions reads,
 # writes to, and commits back to the repo on every scheduled run.
 # If a local dev/staging run used that exact same URL, it would open
-# the *same* SQLite file — and SQLite doesn't handle concurrent
+# the *same* SQLite file, and SQLite doesn't handle concurrent
 # writers from separate processes gracefully. This exact problem
 # happened in practice: a stray local process held the production DB
 # file open, and the next GitHub Actions run failed with a "readonly
@@ -247,7 +247,7 @@ def _environment_scoped_db_url(url: str, environment: str) -> str:
                 -> "sqlite:///data/listings.dev.db"
         If `url` has no extension (no "." after the last "/"), the
         suffix is simply appended, so this never raises on unusual
-        URLs — it degrades to "just add a suffix."
+        URLs, it degrades to "just add a suffix."
 
     WHY (see module-level comment above _environment_scoped_db_url):
         Prevents local/staging runs from ever opening the exact same
@@ -258,7 +258,7 @@ def _environment_scoped_db_url(url: str, environment: str) -> str:
 
     Args:
         url: The raw database URL from config.yaml (production URL).
-        environment: One of "dev", "staging", "production" — usually
+        environment: One of "dev", "staging", "production", usually
             the return value of environment.get_environment().
 
     Returns:
@@ -278,7 +278,7 @@ def _environment_scoped_db_url(url: str, environment: str) -> str:
         stem, _, ext = file_part.rpartition(".")
         scoped_file_part = f"{stem}.{environment}.{ext}"
     else:
-        # No extension to split on — just append the suffix.
+        # No extension to split on, just append the suffix.
         scoped_file_part = f"{file_part}.{environment}"
 
     return f"{dir_part}{scoped_file_part}"
@@ -287,7 +287,7 @@ def _environment_scoped_db_url(url: str, environment: str) -> str:
 @dataclass
 class Config:
     """
-    Top-level config — holds everything.
+    Top-level config, holds everything.
     
     Usage:
         config = load_config()
@@ -303,7 +303,7 @@ class Config:
     schedule: dict
     price_drop: PriceDropConfig
     secrets: dict = field(default_factory=_load_env_secrets)
-    # Which environment this run is executing in — "dev", "staging",
+    # Which environment this run is executing in, "dev", "staging",
     # or "production". Defaulted via get_environment() (which itself
     # defaults to "production" when ENVIRONMENT is unset) so existing
     # callers that construct Config directly, or call load_config()
@@ -311,7 +311,7 @@ class Config:
     environment: str = field(default_factory=get_environment)
     # The SearchConfig currently being processed. main.py's per-search
     # loop sets this (`config.search = search_config`) before running
-    # any scraper — every scraper and BaseScraper.passes_filters()/
+    # any scraper, every scraper and BaseScraper.passes_filters()/
     # parse_common_specs() reads config.search rather than taking a
     # SearchConfig parameter directly. Declared here (defaulting to
     # None) purely so that runtime contract is visible in the type
@@ -345,7 +345,7 @@ def _parse_site(raw: dict) -> SiteConfig:
 # This is what makes searches.yaml entries future-proof.  Instead of
 # hardcoding "M5 Max" / "iPhone 17 Pro Max" in config.yaml, a search
 # entry can reference a family under `generations:` and get a rolling
-# window of the last N flagship generations — bump one number
+# window of the last N flagship generations, bump one number
 # (`current_gen`) per year, no other edits or code changes needed.
 def _expand_generation(search_dict: dict, generations_raw: dict) -> dict:
     """
@@ -410,7 +410,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
     Dicts merge key-by-key (recursing into nested dicts). Any other
     value in `override` (including lists) replaces the base value
-    entirely — e.g. a `regions` list in the override doesn't get
+    entirely, e.g. a `regions` list in the override doesn't get
     appended to config.yaml's list, it replaces it outright. This
     keeps the semantics simple and predictable: "whatever this key
     is in the local override, that's what it is."
@@ -432,14 +432,14 @@ def load_config(path: str = "config.yaml", local_path: str = "config.local.yaml"
         path: Path to the YAML config file (default: "config.yaml").
         local_path: Path to an optional local override file (default:
             "config.local.yaml"). If present, its contents are deep-
-            merged on top of `path`'s — see _deep_merge(). This exists
+            merged on top of `path`'s, see _deep_merge(). This exists
             so personally-identifying-but-not-secret settings (e.g.
             which real Craigslist metro regions to search) don't have
             to live in the tracked, possibly-public config.yaml. This
             file is gitignored; see config.local.yaml.example for the
             format. In CI, .github/workflows/scrape*.yml generate this
             file from a GitHub Secret before the scraper runs (see
-            those workflows' "Write local config overrides" step) —
+            those workflows' "Write local config overrides" step),
             it never touches the repo.
 
     Returns:
@@ -465,7 +465,7 @@ def load_config(path: str = "config.yaml", local_path: str = "config.local.yaml"
     db_raw          = raw["database"]
     generations_raw = raw.get("generations", {})
     # .get() with defaults (not raw["price_drop"]) so any config.yaml
-    # written before this feature existed keeps loading unchanged —
+    # written before this feature existed keeps loading unchanged,
     # price-drop alerts are simply enabled with sane defaults.
     price_drop_raw  = raw.get("price_drop", {})
 

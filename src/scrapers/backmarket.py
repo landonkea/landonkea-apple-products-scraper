@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────
-# Back Market scraper — fetches refurbished MacBook/iPhone listings
+# Back Market scraper, fetches refurbished MacBook/iPhone listings
 # ─────────────────────────────────────────────────────────────────────
 # Back Market is a French marketplace specializing in refurbished
 # electronics.  It's one of the largest refurbished marketplaces in
@@ -18,8 +18,8 @@
 # WHY A TWO-STEP "DISCOVER THEN FETCH" PROCESS (same shape as Swappa):
 # Back Market's `/search?q=...` page no longer renders individual
 # purchasable listings.  Each card on that page is now a CATEGORY tile
-# — one per chip generation (e.g. "MacBook Pro (M5 series)") or, for
-# iPhone, one per specific config — showing a single "starting at"
+#, one per chip generation (e.g. "MacBook Pro (M5 series)") or, for
+# iPhone, one per specific config, showing a single "starting at"
 # price with no parseable condition/RAM/storage breakdown.  Those tiles
 # link to a `/p/{slug}/{uuid}` product page for one representative
 # config of that generation.

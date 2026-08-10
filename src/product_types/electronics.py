@@ -1,10 +1,10 @@
 # ───────────────────────────────────────────────────────────────────
-# Electronics product type — MacBook Pro / iPhone specific logic
+# Electronics product type, MacBook Pro / iPhone specific logic
 # ───────────────────────────────────────────────────────────────────
 # This is a relocation, not a rewrite: everything in this file used
 # to live directly in src/scrapers/base.py and src/price_analyzer.py.
 # It's the reference implementation of ProductTypeHandler (see
-# src/product_types/base.py) — read that file first if you're adding
+# src/product_types/base.py), read that file first if you're adding
 # a new product type; this one is the example to structurally match.
 # ───────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ def extract_ram_gb(title: str) -> Optional[int]:
             if val <= 256:
                 return val
 
-    # Pattern 2: just "N GB" alone — but only if N is a reasonable
+    # Pattern 2: just "N GB" alone, but only if N is a reasonable
     # RAM size (not storage).  MacBook Pro RAM configs are:
     # 8, 16, 24, 32, 36, 48, 64, 96, 128, 192
     # Storage always starts at 256+ GB.
@@ -148,7 +148,7 @@ def extract_core_counts(title: str) -> tuple[Optional[int], Optional[int]]:
     "16-Core CPU and 40-Core GPU" or "16 Core CPU / 40 Core GPU".
 
     Returns:
-        (cpu_cores, gpu_cores) — either may be None if not found.
+        (cpu_cores, gpu_cores), either may be None if not found.
     """
     cpu_cores = None
     gpu_cores = None
@@ -191,7 +191,7 @@ IPHONE_BAD_KEYWORDS = [
 
 # iPhone accessory titles very often literally contain the phone's
 # generation name (e.g. "Case for iPhone 15 Pro Max") since that's
-# the product they're compatible with — so, unlike MacBook listings,
+# the product they're compatible with, so, unlike MacBook listings,
 # a plain "does the title mention iPhone 15 Pro Max" search can't
 # tell an accessory apart from an actual phone. This list plus the
 # MINIMUM_PRICE_USD/storage check in is_likely_iphone() is what
@@ -208,7 +208,7 @@ IPHONE_ACCESSORY_KEYWORDS = [
 ]
 
 # A real iPhone listing almost always states storage capacity
-# ("128GB", "256GB", "1TB", ...) — accessories essentially never do.
+# ("128GB", "256GB", "1TB", ...), accessories essentially never do.
 MINIMUM_IPHONE_PRICE_USD = 100
 
 # Minimum price for a real computer (anything cheaper is an accessory/part)
@@ -258,7 +258,7 @@ def is_likely_macbook_pro(title: str, condition: Optional[str] = None) -> bool:
         condition: The marketplace's condition label, if available
             (e.g. eBay's "Parts Only" badge). Some red-flag signals
             (like "parts only") show up ONLY here, not in the title
-            text — a listing found live had title "Apple iPhone 15
+            text, a listing found live had title "Apple iPhone 15
             Pro Max - 1 TB - Blue Titanium (Unlocked)" with condition
             "Parts Only", so title-only keyword checks missed it
             entirely. Checked alongside the title, not in place of it.
@@ -273,7 +273,7 @@ def is_likely_macbook_pro(title: str, condition: Optional[str] = None) -> bool:
     if "macbook pro" not in title_lower:
         return False
 
-    # Exclude accessories/red-flag condition by keyword — checked
+    # Exclude accessories/red-flag condition by keyword, checked
     # against both the title and the marketplace's condition label.
     for kw in ACCESSORY_KEYWORDS:
         if kw in title_lower or kw in condition_lower:
@@ -301,18 +301,18 @@ def is_likely_iphone(title: str, condition: Optional[str] = None) -> bool:
     HOW: Rejects titles (and the marketplace's condition label, if
     given) containing accessory or bad-condition keywords, then
     requires at least one storage-capacity mention (e.g. "256GB",
-    "1TB") as the hardware-indicator check — mirrors
+    "1TB") as the hardware-indicator check, mirrors
     is_likely_macbook_pro()'s "must have at least one real spec"
     requirement.
     WHY: Unlike MacBook listings, iPhone accessory titles routinely
     contain the exact generation name (e.g. "Case for iPhone 15 Pro
-    Max") because that's the product they're compatible with — a
+    Max") because that's the product they're compatible with, a
     plain keyword match can't tell an accessory from a real phone.
     Real phone listings almost always state storage; accessories
     almost never do, so that's the more reliable signal here.
     The `condition` check matters because red-flag signals sometimes
     show up ONLY in the marketplace's condition badge, not the title
-    — a live eBay result had title "Apple iPhone 15 Pro Max - 1 TB -
+   , a live eBay result had title "Apple iPhone 15 Pro Max - 1 TB -
     Blue Titanium (Unlocked)" (nothing suspicious) but condition
     "Parts Only", which a title-only check would have missed.
 
@@ -402,7 +402,7 @@ def is_likely_ipad_pro(title: str, condition: Optional[str] = None) -> bool:
 
 
 class ElectronicsHandler(ProductTypeHandler):
-    """Apple hardware (MacBook Pro / iPhone) — the reference ProductTypeHandler."""
+    """Apple hardware (MacBook Pro / iPhone), the reference ProductTypeHandler."""
 
     def parse_specs(self, title: str) -> dict:
         cpu_cores, gpu_cores = extract_core_counts(title)
@@ -431,7 +431,7 @@ class ElectronicsHandler(ProductTypeHandler):
 
         # Check chip (only if a chip filter is configured).
         # If chip_options is set (via a generation_family), it's a
-        # rolling window of the last N flagship generations — match
+        # rolling window of the last N flagship generations, match
         # against any of them instead of a fixed primary/fallback pair.
         if s.chip_options:
             if not listing.chip:
@@ -502,7 +502,7 @@ class ElectronicsHandler(ProductTypeHandler):
         elif listing.ram_gb == s.ram_gb_fallback:
             bonus += 2   # e.g. 64GB = acceptable
 
-        # Chip generation bonus (weight: medium) — only meaningful
+        # Chip generation bonus (weight: medium), only meaningful
         # when the search uses a generation_family window
         # (chip_generation_map is empty for manually-configured searches).
         if listing.chip and s.chip_generation_map:
@@ -512,7 +512,7 @@ class ElectronicsHandler(ProductTypeHandler):
                 gens_back = newest_gen - gen
                 bonus += max(8 - 3 * gens_back, 0)  # newest +8, next +5, oldest +2
 
-        # Core count bonus (weight: low) — reward listings that state
+        # Core count bonus (weight: low), reward listings that state
         # the flagship CPU/GPU core-count bin for their chip
         # generation. Listings that just don't mention core counts in
         # the title (common) get no bonus and no penalty.
@@ -525,7 +525,7 @@ class ElectronicsHandler(ProductTypeHandler):
                         and listing.gpu_cores >= reference.get("gpu", 0)):
                     bonus += 4
 
-        # Screen size preference (weight: low) — earlier entries in
+        # Screen size preference (weight: low), earlier entries in
         # screen_sizes are preferred (e.g. [14, 16] means 14" is
         # preferred, 16" is an accepted fallback).
         if listing.screen_size and s.screen_sizes:
@@ -534,7 +534,7 @@ class ElectronicsHandler(ProductTypeHandler):
                     bonus += max(3 - 2 * i, 0)  # 1st +3, 2nd +1, 3rd+ +0
                     break
 
-        # Storage bonus (weight: lowest) — bigger is better, but this
+        # Storage bonus (weight: lowest), bigger is better, but this
         # matters least of all the specs.
         if listing.storage_gb:
             bonus += min(listing.storage_gb / 8192 * 3, 3)  # up to +3 at 8TB

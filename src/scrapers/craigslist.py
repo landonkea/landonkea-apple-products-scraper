@@ -1,37 +1,37 @@
 # ───────────────────────────────────────────────────────────────────
-# Craigslist scraper — fetches listings from craigslist.org
+# Craigslist scraper, fetches listings from craigslist.org
 # ───────────────────────────────────────────────────────────────────
 # Craigslist is local classifieds, organized by CITY/METRO REGION
-# (not by state) — each region used to live on its own subdomain
+# (not by state), each region used to live on its own subdomain
 # (e.g. phoenix.craigslist.org) and still does for the *listing detail*
 # page, but search itself has moved to a consolidated host. See the
 # LIVE-TESTING FINDINGS below. The region(s) this scraper searches are
-# a config value (config.yaml sites.craigslist.regions, a LIST — e.g.
+# a config value (config.yaml sites.craigslist.regions, a LIST, e.g.
 # ["phoenix", "tucson", "losangeles"]), NOT hardcoded, so widening or
 # narrowing coverage later is a config.yaml edit, no code changes. See
 # config.py's SiteConfig.regions field.
 #
 # MULTI-STATE / MULTI-REGION COVERAGE (added 2026-08-02): a single
-# Craigslist "region" is one metro, not a state — California alone
+# Craigslist "region" is one metro, not a state, California alone
 # has 20+ separate regions (losangeles, sfbay, sandiego, sacramento,
 # etc). To cover multiple states, this scraper loops over EVERY slug
 # in config.yaml's sites.craigslist.regions and aggregates results,
 # reusing the same fetch_page() (which already rate-limits every
-# request — see BaseScraper.fetch_page's 1.5-2.5s randomized delay
+# request, see BaseScraper.fetch_page's 1.5-2.5s randomized delay
 # and retry/backoff) so looping over many regions doesn't hammer
 # Craigslist with rapid-fire requests. Cross-region (and cross-source)
 # duplicate listings are handled downstream in main.py by
-# source+listing_id, not here — this scraper does its own in-run
+# source+listing_id, not here, this scraper does its own in-run
 # de-dup by listing_id (same as before) but doesn't need to know or
 # care whether the same listing could theoretically appear under two
 # regions.
 #
 # A "search nearby areas" broadening feature (a checkbox/param on
 # classic per-city Craigslist search pages) was investigated FIRST as
-# a cheaper alternative to enumerating regions, and rejected — see
+# a cheaper alternative to enumerating regions, and rejected, see
 # LIVE-TESTING FINDINGS point 10 below for what was actually checked.
 #
-# LIVE-TESTING FINDINGS (this is what the code below is built on —
+# LIVE-TESTING FINDINGS (this is what the code below is built on,
 # do not "fix" this scraper based on assumptions without re-checking
 # these against the real site first. Checked 2026-07-31, region-list
 # behavior + slugs re-verified 2026-08-02):
@@ -44,7 +44,7 @@
 #      Both the old subdomain URL (followed) and the new consolidated
 #      URL return HTTP 200. The new URL shape is:
 #        https://www.craigslist.org/search/area/{region}?cat={cat}&query={query}
-#      `{region}` is the metro slug (e.g. "phoenix", "tucson" — both
+#      `{region}` is the metro slug (e.g. "phoenix", "tucson", both
 #      confirmed live, tucson returning fewer results as expected for
 #      a smaller metro). This scraper builds that URL directly rather
 #      than relying on the old subdomain, since the subdomain form
@@ -57,7 +57,7 @@
 #      genuinely-relevant results filed under other categories (e.g.
 #      a listing categorized under general "for sale" rather than
 #      "electronics"). Since Craigslist is a general classifieds site
-#      (like eBay/Swappa — see applicable_product_types=None in
+#      (like eBay/Swappa, see applicable_product_types=None in
 #      config.py, applies to every product type, not just
 #      electronics), `sss` is the correct broad default so a future
 #      non-electronics search (e.g. apparel) isn't silently scoped to
@@ -67,7 +67,7 @@
 #      scraping is NO. The live page (`view-source` on the fetched
 #      HTML) ships a `<body class="no-js">` with a loading "curtain"
 #      overlay that a real browser's JS removes before rendering
-#      results client-side. BUT — critically — the *same* initial
+#      results client-side. BUT, critically, the *same* initial
 #      HTML response also embeds a fully-populated, real
 #      `<ol class="cl-static-search-results">` fallback list (only
 #      CSS-hidden via `.cl-static-search-results { display:none }`,
@@ -82,7 +82,7 @@
 #      query. There is ALSO a `<script type="application/ld+json"
 #      id="ld_searchpage_results">` JSON-LD block with the same
 #      result set in a different shape (price/name/geo-coordinates,
-#      but no listing URL or location city text) — considered as an
+#      but no listing URL or location city text), considered as an
 #      alternative data source, but the static `<li>` HTML has
 #      everything JSON-LD lacks (URL, listing ID, city name) plus
 #      everything JSON-LD has (title, price), so this scraper parses
@@ -101,19 +101,19 @@
 #        </li>
 #      The listing ID is the last path segment of the URL (e.g.
 #      "c9yAuUSPCiAE7juezJsoux"). `location` is a bare city name with
-#      no state suffix (e.g. "Chandler", "Tempe") — Craigslist does
+#      no state suffix (e.g. "Chandler", "Tempe"), Craigslist does
 #      not expose a separate state field on the search results page,
 #      so `listing.location` is stored as-is rather than guessing/
 #      appending a state that isn't actually on the page.
 #
 #   5. NO FORMAL "CONDITION" FIELD. Unlike eBay/Swappa/BackMarket,
 #      Craigslist search results carry no structured condition badge
-#      at all — sellers sometimes mention "like new" or "used" in the
+#      at all, sellers sometimes mention "like new" or "used" in the
 #      free-text title, but there's no separate field to extract.
 #      Documented honestly: `condition` is always `None` for Craigslist
 #      listings. `passes_filters()` / `is_relevant()` both already
 #      handle `condition=None` safely (they do `condition_lower =
-#      (condition or "").lower()` — see product_types/electronics.py),
+#      (condition or "").lower()`, see product_types/electronics.py),
 #      so this doesn't break any downstream filtering.
 #
 #   6. SERVER-SIDE PRICE FILTER WORKS: appending `&max_price=500` to
@@ -125,7 +125,7 @@
 #
 #   7. PAGINATION: not implemented. The single static-fallback page
 #      already returned the *entire* matching result set (130 items
-#      for a fairly common query) rather than a truncated first page —
+#      for a fairly common query) rather than a truncated first page,
 #      appending `&s=120` (Craigslist's classic pagination offset
 #      param) actually 301-redirected back to a bare URL rather than
 #      returning a second page, suggesting the new consolidated search
@@ -137,7 +137,7 @@
 #
 #   8. ROBOTS.TXT / BOT BLOCKS: `https://www.craigslist.org/robots.txt`
 #      disallows only `/reply`, `/fb/`, `/suggest`, `/flag`, `/mf`,
-#      `/mailflag`, `/eaf`, `/sitemap/` — none of which this scraper
+#      `/mailflag`, `/eaf`, `/sitemap/`, none of which this scraper
 #      touches. `/search/...` is not disallowed. No Cloudflare
 #      challenge or captcha was encountered on any request made while
 #      researching this scraper (all plain `curl`, no browser).
@@ -150,7 +150,7 @@
 #      robots.txt does not disallow the search paths used here, and
 #      this scraper follows the same low-volume, rate-limited,
 #      personal-use pattern as every other scraper in this repo (see
-#      BaseScraper.fetch_page's built-in delay/retry behavior) — but
+#      BaseScraper.fetch_page's built-in delay/retry behavior), but
 #      this is a materially different risk profile than eBay/Swappa's
 #      scraper-tolerant public APIs, and is called out explicitly here
 #      rather than treated as equivalent-risk by default.
@@ -160,21 +160,21 @@
 #      fetched a live phoenix search both with and without
 #      `&searchNearby=1` appended
 #      (https://www.craigslist.org/search/area/phoenix?cat=sss&query=
-#      macbook+pro) — the param had NO effect on result count (111 vs
+#      macbook+pro), the param had NO effect on result count (111 vs
 #      112, within normal listing churn between two live fetches, not
 #      a meaningful broadening) and no listing outside the Phoenix
 #      metro area appeared. Also grepped the full raw HTML response
-#      for "nearby" (case-insensitive): zero matches — no checkbox,
+#      for "nearby" (case-insensitive): zero matches, no checkbox,
 #      no UI element, no JS variable referencing a nearby-areas
 #      feature at all on this consolidated `/search/area/{region}`
 #      host. (The classic per-subdomain craigslist.org UI reportedly
 #      had this in the past, but it's gone from the current search
 #      page.) Also tried an `areaID=1` param as a guess at a
-#      multi-region combinator — no effect either. Conclusion: with no
+#      multi-region combinator, no effect either. Conclusion: with no
 #      working single-request broadening mechanism, enumerating actual
 #      region slugs (see config.yaml sites.craigslist.regions) is the
 #      only way to cover multiple states, so that's what this scraper
-#      does — see the "MULTI-STATE / MULTI-REGION COVERAGE" note above
+#      does, see the "MULTI-STATE / MULTI-REGION COVERAGE" note above
 #      the LIVE-TESTING FINDINGS section.
 #
 #  11. REGION SLUGS VERIFIED LIVE (2026-08-02): every slug below was
@@ -187,7 +187,7 @@
 #      90), saltlakecity (UT, 6), provo (UT, 4), lasvegas (NV, 37),
 #      reno (NV, 12), denver (CO, 35), cosprings (CO, 7), boulder (CO,
 #      12). One guessed slug was WRONG and confirmed 404: Colorado
-#      Springs is "cosprings", NOT "coloradosprings" — don't
+#      Springs is "cosprings", NOT "coloradosprings", don't
 #      reintroduce that typo.
 # ───────────────────────────────────────────────────────────────────
 
@@ -204,26 +204,26 @@ class CraigslistScraper(BaseScraper):
     Scraper for Craigslist (craigslist.org) local classifieds.
 
     Craigslist is a general classifieds site (like eBay/Swappa), not
-    an electronics-only storefront — see applicable_product_types=None
-    in config.yaml's craigslist entry — so it's searched for every
+    an electronics-only storefront, see applicable_product_types=None
+    in config.yaml's craigslist entry, so it's searched for every
     product type, not just MacBook Pro / iPhone.
 
     The metro region(s) searched (e.g. "phoenix", "tucson") are
     config-driven via config.sites.craigslist.regions (a list),
     defaulting to just Phoenix if unset. `scrape()` loops over every
     configured region, aggregating results, to cover multiple states
-    in one run — see the module docstring's "MULTI-STATE / MULTI-
+    in one run, see the module docstring's "MULTI-STATE / MULTI-
     REGION COVERAGE" note. See the module docstring's LIVE-TESTING
     FINDINGS for exactly how the search URL, listing HTML structure,
     and filters were verified.
     """
 
     BASE_URL = "https://www.craigslist.org"
-    # "for sale - all" — the broad category, not electronics-only
+    # "for sale - all", the broad category, not electronics-only
     # ("sya"). See LIVE-TESTING FINDINGS point 2 for why.
     CATEGORY = "sss"
     # Fallback if config.yaml's sites.craigslist.regions is unset or
-    # empty — Phoenix is the largest Arizona metro (this project's
+    # empty, Phoenix is the largest Arizona metro (this project's
     # original default search area).
     DEFAULT_REGIONS = ["phoenix"]
 
@@ -235,9 +235,9 @@ class CraigslistScraper(BaseScraper):
     def regions(self) -> list[str]:
         """
         The Craigslist metro region slugs to search (e.g. "phoenix",
-        "tucson", "losangeles"). Config-driven — see config.py's
+        "tucson", "losangeles"). Config-driven, see config.py's
         SiteConfig.regions and config.yaml's sites.craigslist.regions
-        — so widening/narrowing coverage never requires a code change.
+       , so widening/narrowing coverage never requires a code change.
         """
         site_config = self.config.sites.craigslist
         return list(site_config.regions) if site_config.regions else list(self.DEFAULT_REGIONS)
@@ -248,7 +248,7 @@ class CraigslistScraper(BaseScraper):
         given region.
 
         Uses the consolidated `/search/area/{region}` URL shape (see
-        LIVE-TESTING FINDINGS point 1 — the old per-city subdomain
+        LIVE-TESTING FINDINGS point 1, the old per-city subdomain
         form just 301-redirects to this), the broad "sss" category
         (point 2), and a server-side `max_price` filter (point 6) to
         avoid wasting a request on listings passes_filters() would
@@ -288,7 +288,7 @@ class CraigslistScraper(BaseScraper):
         Extract a unique listing ID from a Craigslist listing URL.
 
         Craigslist listing URLs look like
-        ".../view/d/<slug>/<id>" — the last path segment is a stable,
+        ".../view/d/<slug>/<id>", the last path segment is a stable,
         unique ID for the posting. Falls back to a hash of the URL if
         the shape doesn't match (defensive, not seen live).
 
@@ -318,7 +318,7 @@ class CraigslistScraper(BaseScraper):
             A ScrapedListing, or None if required fields are missing.
         """
         # The full title is also on the <li title="..."> attribute,
-        # but the div.title text is the more direct/reliable source —
+        # but the div.title text is the more direct/reliable source,
         # both were confirmed identical live.
         title_el = item.select_one("div.title")
         title = title_el.get_text(strip=True) if title_el else ""
@@ -349,7 +349,7 @@ class CraigslistScraper(BaseScraper):
             title=title,
             price_usd=price,
             url=url,
-            # Craigslist has no structured condition field — see
+            # Craigslist has no structured condition field, see
             # LIVE-TESTING FINDINGS point 5. Always None, honestly.
             condition=None,
             ram_gb=specs["ram_gb"],
@@ -367,14 +367,14 @@ class CraigslistScraper(BaseScraper):
         its listing cards (`li.cl-static-search-result` elements).
 
         HOW: A single request per region gets that region's entire
-        result set — see LIVE-TESTING FINDINGS point 7 for why this
+        result set, see LIVE-TESTING FINDINGS point 7 for why this
         scraper doesn't paginate. Rate limiting between requests
         (including across regions in scrape()'s loop) is handled by
         fetch_page() itself (BaseScraper.fetch_page's randomized
         1.5-2.5s delay + retry/backoff), so callers don't need to add
         their own delay. Fetch/parse failures return an empty list
         rather than raising, matching every other scraper's fetch-
-        helper pattern here (e.g. newegg.py's _fetch_page_cards()) —
+        helper pattern here (e.g. newegg.py's _fetch_page_cards()),
         one bad region shouldn't abort the whole multi-region scrape.
 
         Args:
@@ -398,13 +398,13 @@ class CraigslistScraper(BaseScraper):
     def scrape(self) -> list[ScrapedListing]:
         """
         Main entry point: fetch and parse Craigslist listings across
-        every configured region (config.sites.craigslist.regions —
+        every configured region (config.sites.craigslist.regions,
         see the module docstring's "MULTI-STATE / MULTI-REGION
         COVERAGE" note).
 
         For each configured region:
           1. Fetch that region's search results page (single request
-             — see LIVE-TESTING FINDINGS point 7 — politely rate-
+            , see LIVE-TESTING FINDINGS point 7, politely rate-
              limited by fetch_page() same as every other request).
           2. Parse each listing card, apply passes_filters().
           3. Deduplicate by listing_id (both within and across
@@ -412,7 +412,7 @@ class CraigslistScraper(BaseScraper):
              collected overall.
 
         Cross-source duplicate listings (e.g. the same item also
-        found by another scraper) are deliberately NOT handled here —
+        found by another scraper) are deliberately NOT handled here,
         that's main.py's job via source+listing_id, same as every
         other scraper.
 
@@ -442,7 +442,7 @@ class CraigslistScraper(BaseScraper):
                             found_ids.add(listing.listing_id)
                             region_count += 1
                 except Exception:
-                    # Skip individual listing parse errors — don't
+                    # Skip individual listing parse errors, don't
                     # fail the whole batch.
                     continue
 

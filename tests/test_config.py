@@ -42,7 +42,7 @@ searches:
 
 # ── Price thresholds ────────────────────────────────────────────
 price:
-  absolute_max_usd: 8000           # Hard cap — ignore anything pricier
+  absolute_max_usd: 8000           # Hard cap, ignore anything pricier
   great_deal_usd:                  # "Alert immediately!" thresholds
     128: 5000                      # 128GB RAM model: great deal under $5,000
     64: 4000                       # 64GB RAM model: great deal under $4,000
@@ -156,12 +156,12 @@ def test_load_config():
         assert config.sites.swappa.enabled is False
         assert config.sites.apple_refurb.enabled is True
         # Craigslist's regions are config-driven (see config.py's
-        # SiteConfig.regions and scrapers/craigslist.py) — confirm it
+        # SiteConfig.regions and scrapers/craigslist.py), confirm it
         # actually parses through from config.yaml.
         assert config.sites.craigslist.enabled is True
         assert config.sites.craigslist.regions == ["phoenix", "tucson"]
         # Sites that don't set `regions` in YAML should default to None
-        # (the scraper itself falls back to ["phoenix"] — see
+        # (the scraper itself falls back to ["phoenix"], see
         # CraigslistScraper.DEFAULT_REGIONS), not raise a KeyError.
         assert config.sites.ebay.regions is None
 

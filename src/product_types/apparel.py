@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# Apparel product type — boots/footwear, the second ProductTypeHandler
+# Apparel product type, boots/footwear, the second ProductTypeHandler
 # ───────────────────────────────────────────────────────────────────
 # WHAT: This is the "genuinely different category" example promised
 # by src/product_types/base.py's module docstring and config.yaml's

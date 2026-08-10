@@ -3,7 +3,7 @@
 # ───────────────────────────────────────────────────────────────────
 # Apple's refurb page embeds all product data in a JavaScript
 # variable called `window.REFURB_GRID_BOOTSTRAP`.  We extract
-# that JSON blob and parse it directly — no HTML card scraping.
+# that JSON blob and parse it directly, no HTML card scraping.
 # ───────────────────────────────────────────────────────────────────
 
 import json
@@ -51,7 +51,7 @@ class AppleRefurbScraper(BaseScraper):
             ]
         elif "iphone" in product.lower():
             # Apple's refurb store has no per-model iPhone page
-            # (e.g. "iphone-17-pro-max" 404s) — only the category
+            # (e.g. "iphone-17-pro-max" 404s), only the category
             # root works. passes_filters()'s model_keywords check
             # narrows results down to the generations we want.
             urls = ["https://www.apple.com/shop/refurbished/iphone"]
@@ -92,7 +92,7 @@ class AppleRefurbScraper(BaseScraper):
                 # The variable looks like:
                 #   window.REFURB_GRID_BOOTSTRAP = { ... };
                 # We strip the prefix and the trailing semicolon.
-                # Note: no ^ anchor — the content may have leading
+                # Note: no ^ anchor, the content may have leading
                 # whitespace (newlines + spaces before the var name)
                 json_str = re.sub(
                     r"window\.REFURB_GRID_BOOTSTRAP\s*=\s*",

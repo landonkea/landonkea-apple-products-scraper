@@ -1,11 +1,11 @@
 # ───────────────────────────────────────────────────────────────────
-# Notifier — sends alerts via email and Discord
+# Notifier, sends alerts via email and Discord
 # ───────────────────────────────────────────────────────────────────
 # When great deals are found, this module:
 #   1. Sends an HTML email via Gmail SMTP (free with app password)
 #   2. Posts a message to a Discord channel via webhook (free)
 #
-# Both methods are optional — set enabled: false in config.yaml
+# Both methods are optional, set enabled: false in config.yaml
 # to disable either one.
 # ───────────────────────────────────────────────────────────────────
 
@@ -153,7 +153,7 @@ class Notifier:
 
     def send_scooped_deal_alert(self, scooped: list[Listing]):
         """
-        Send an alert when a great deal disappears fast — likely
+        Send an alert when a great deal disappears fast, likely
         bought by someone else.
 
         WHAT: A THIRD alert type (alongside send_alert's "new deal
@@ -163,9 +163,9 @@ class Notifier:
         visible lifetime (first seen to last seen) was under
         SCOOPED_DEAL_HOURS.
         HOW: Same Discord-only send path as the other alert types
-        (email isn't wired up for this one — it's a low-volume,
+        (email isn't wired up for this one, it's a low-volume,
         Discord-first heads-up, not something worth a full email).
-        WHY: Not previously surfaced anywhere — a great deal quietly
+        WHY: Not previously surfaced anywhere, a great deal quietly
         going inactive looked identical to any other listing expiring,
         even though "great price, gone within a day" is a real signal
         worth knowing (confirms the scoring is finding genuinely good
@@ -229,7 +229,7 @@ class Notifier:
         an inline-styled HTML `<div>`.
         WHY: Pulled out of `_build_email_body` so the stats box can be
         read, tested, and changed independently of the deals table or
-        footer — each piece of the email now has a single job.
+        footer, each piece of the email now has a single job.
 
         Args:
             stats: Price statistics dict from PriceAnalyzer.
@@ -366,7 +366,7 @@ class Notifier:
         find these deals.
         HOW: Reads directly off `self.config.search`/`self.config.price`.
         WHY: This is intentionally NOT merged with `_build_search_summary()`
-        (used for the Discord footer) — that helper produces a
+        (used for the Discord footer), that helper produces a
         differently-formatted, product-branching summary without a
         "Searching for:" prefix or max-price field, built for Discord's
         embed footer. Forcing a merge here would change the email's
@@ -394,15 +394,15 @@ class Notifier:
         """
         Build an HTML email body with the best deals.
 
-        WHAT: Assembles the full HTML document — header/styles, stats
-        box, deals table, and footer — into one email body.
+        WHAT: Assembles the full HTML document, header/styles, stats
+        box, deals table, and footer, into one email body.
         HOW: Delegates each section to a dedicated builder
         (`_build_stats_summary_html`, `_build_deals_table_html`,
         `_build_email_footer_html`) and drops the results into the
         page shell (doctype, `<style>`, and `<h1>` title).
         WHY: Previously this method built every section inline in one
         ~140-line block. Splitting it keeps each section single-
-        responsibility, independently testable, and easier to read —
+        responsibility, independently testable, and easier to read,
         this method's job is now just "assemble the shell."
 
         Args:
@@ -452,9 +452,9 @@ class Notifier:
         Send an HTML email via Gmail SMTP.
         
         Requires these environment variables:
-          ALERT_EMAIL_FROM    — your Gmail address
-          ALERT_EMAIL_TO      — where to send the alert
-          GMAIL_APP_PASSWORD  — Gmail app password (not your normal password)
+          ALERT_EMAIL_FROM   , your Gmail address
+          ALERT_EMAIL_TO     , where to send the alert
+          GMAIL_APP_PASSWORD , Gmail app password (not your normal password)
         
         How to get a Gmail app password:
           1. Go to https://myaccount.google.com/security
@@ -473,7 +473,7 @@ class Notifier:
         
         # Skip if email isn't configured
         if not all([email_from, email_to, app_password]):
-            print("  [Notifier] Email not configured — set ALERT_EMAIL_FROM, "
+            print("  [Notifier] Email not configured, set ALERT_EMAIL_FROM, "
                   "ALERT_EMAIL_TO, and GMAIL_APP_PASSWORD env vars.")
             return
         
@@ -481,7 +481,7 @@ class Notifier:
         product = self.config.search.product_name
         msg = MIMEMultipart("alternative")
         msg["Subject"] = (
-            f"🎯 {len(top_deals)} {product} Deals Found — "
+            f"🎯 {len(top_deals)} {product} Deals Found, "
             f"Lowest: ${min(l.price_usd for l in top_deals):,.0f}"
         )
         msg["From"] = email_from
@@ -551,16 +551,16 @@ class Notifier:
         wrong causes the whole send to fail with a 400:
           1. 25 fields max per embed.
           2. 10 embeds max per message.
-          3. 6000 characters max — NOT per embed, but summed across
+          3. 6000 characters max, NOT per embed, but summed across
              every title/field-name/field-value/footer in ALL embeds
              within one message combined. This is the one that broke
              production: pagination was originally per-embed only,
              so two embeds of ~3990 and ~2480 chars each individually
-             looked fine but summed to 6470 — over Discord's combined
-             6000-char message limit — and Discord rejected the whole
+             looked fine but summed to 6470, over Discord's combined
+             6000-char message limit, and Discord rejected the whole
              message with a 400, silently dropping 40 real deals.
         So each new field is added to a running total that resets
-        only when a new MESSAGE starts (not a new embed) — once
+        only when a new MESSAGE starts (not a new embed), once
         adding a field would break any of the three caps, a new embed
         starts, and if that also means starting past 10 embeds, a new
         MESSAGE starts instead (its own fresh 6000-char budget).
@@ -575,7 +575,7 @@ class Notifier:
             footer_text: Embed footer text (already product-aware).
 
         Returns:
-            A list of messages, each a list of embed dicts — call
+            A list of messages, each a list of embed dicts, call
             _post_to_discord once per message.
         """
         best = top_deals[0] if top_deals else None
@@ -597,7 +597,7 @@ class Notifier:
             rank = i + 1
             emoji = "🔥" if listing.is_great_deal else "💰"
             age = format_listing_age(listing.first_seen_at)
-            age_suffix = f" — {age}" if age else ""
+            age_suffix = f", {age}" if age else ""
 
             # "vs. Apple's own price" baseline, when this listing beats
             # Apple Refurb's price for the exact same config -- see
@@ -617,9 +617,9 @@ class Notifier:
                 breakdown_line = f"\n`{breakdown_str}`"
 
             fields.append({
-                "name": f"{emoji} #{rank} — ${listing.price_usd:,.0f} | {listing.source}",
+                "name": f"{emoji} #{rank}, ${listing.price_usd:,.0f} | {listing.source}",
                 "value": (
-                    f"[{listing.title[:80]}]({clean_url(listing.url)}) — "
+                    f"[{listing.title[:80]}]({clean_url(listing.url)}), "
                     f"Score: {listing.deal_score}/100{age_suffix}"
                     f"{vs_apple_line}{breakdown_line}"
                 ),
@@ -652,11 +652,11 @@ class Notifier:
         drop_percent = (drop_usd / old_price) * 100 if old_price else 0
         return {
             "name": (
-                f"📉 {listing.source} — ${old_price:,.0f} → "
+                f"📉 {listing.source}, ${old_price:,.0f} → "
                 f"${listing.price_usd:,.0f} (-{drop_percent:.0f}%)"
             ),
             "value": (
-                f"[{listing.title[:80]}]({clean_url(listing.url)}) — "
+                f"[{listing.title[:80]}]({clean_url(listing.url)}), "
                 f"saved ${drop_usd:,.0f}"
             ),
             "inline": False,
@@ -669,7 +669,7 @@ class Notifier:
         Build one or more Discord messages for a batch of price drops.
 
         WHAT: Turns `price_drops` into paginated MESSAGES the same way
-        _build_discord_messages does for new-deal alerts — one field
+        _build_discord_messages does for new-deal alerts, one field
         per dropped listing, same three Discord caps respected.
         HOW: Delegates the actual pagination (field/embed/message caps)
         to the same _paginate_discord_fields helper _build_discord_
@@ -685,7 +685,7 @@ class Notifier:
         product = self.config.search.product_name
         title = f"📉 {product} Price Drop Alert"
         footer_text = self._build_search_summary()
-        # Blue — visually distinct from the green/orange used for
+        # Blue, visually distinct from the green/orange used for
         # "new deal found" alerts, so a glance at the channel tells
         # the two alert types apart.
         color = 0x3498db
@@ -723,8 +723,8 @@ class Notifier:
             ).total_seconds() / 3600
 
         return {
-            "name": f"🏃 ${listing.price_usd:,.0f} | {listing.source} — gone in {lifetime_hours:.0f}h",
-            "value": f"[{listing.title[:80]}]({clean_url(listing.url)}) — was a great deal",
+            "name": f"🏃 ${listing.price_usd:,.0f} | {listing.source}, gone in {lifetime_hours:.0f}h",
+            "value": f"[{listing.title[:80]}]({clean_url(listing.url)}), was a great deal",
             "inline": False,
         }
 
@@ -737,7 +737,7 @@ class Notifier:
 
         WHAT: Turns `scooped` into paginated MESSAGES the same way
         _build_price_drop_discord_messages does for price-drop
-        alerts — one field per listing, same three Discord caps
+        alerts, one field per listing, same three Discord caps
         respected (see _paginate_discord_fields).
 
         Args:
@@ -746,12 +746,12 @@ class Notifier:
         Returns:
             A list of messages, each a list of embed dicts.
         """
-        title = "🏃 Great Deal Alert — Scooped!"
+        title = "🏃 Great Deal Alert, Scooped!"
         footer_text = (
-            "A great deal disappeared shortly after being found — "
+            "A great deal disappeared shortly after being found, "
             "probably sold to someone else."
         )
-        # Orange/red-ish — distinct from the green "new deal" and blue
+        # Orange/red-ish, distinct from the green "new deal" and blue
         # "price drop" colors used elsewhere.
         color = 0xe74c3c
 
@@ -785,10 +785,10 @@ class Notifier:
             price_str = f"${listing.price_usd:,.0f}"
 
         note = entry.get("note")
-        note_suffix = f" — {note}" if note else ""
+        note_suffix = f", {note}" if note else ""
 
         return {
-            "name": f"🔭 {listing.source} — {price_str}",
+            "name": f"🔭 {listing.source}, {price_str}",
             "value": f"[{listing.title[:80]}]({clean_url(listing.url)}){note_suffix}",
             "inline": False,
         }
@@ -815,7 +815,7 @@ class Notifier:
         footer_text = (
             "A listing you're tracking was newly matched or changed price."
         )
-        # Purple — distinct from the green/orange "new deal", blue
+        # Purple, distinct from the green/orange "new deal", blue
         # "price drop", and red "scooped" colors used elsewhere.
         color = 0x9b59b6
 
@@ -838,16 +838,16 @@ class Notifier:
         to fail with a 400:
           1. 25 fields max per embed.
           2. 10 embeds max per message.
-          3. 6000 characters max — NOT per embed, but summed across
+          3. 6000 characters max, NOT per embed, but summed across
              every title/field-name/field-value/footer in ALL embeds
              within one message combined. This is the one that broke
              production: pagination was originally per-embed only, so
              two embeds of ~3990 and ~2480 chars each individually
-             looked fine but summed to 6470 — over Discord's combined
-             6000-char message limit — and Discord rejected the whole
+             looked fine but summed to 6470, over Discord's combined
+             6000-char message limit, and Discord rejected the whole
              message with a 400, silently dropping 40 real deals.
         So each new field is added to a running total that resets only
-        when a new MESSAGE starts (not a new embed) — once adding a
+        when a new MESSAGE starts (not a new embed), once adding a
         field would break any of the three caps, a new embed starts,
         and if that also means starting past 10 embeds, a new MESSAGE
         starts instead (its own fresh 6000-char budget).
@@ -860,7 +860,7 @@ class Notifier:
             color: Embed color (0xRRGGBB).
 
         Returns:
-            A list of messages, each a list of embed dicts — call
+            A list of messages, each a list of embed dicts, call
             _post_to_discord once per message.
         """
         MAX_FIELDS_PER_EMBED = 25
@@ -894,8 +894,8 @@ class Notifier:
             over_char_cap = message_chars + this_field_chars > MAX_CHARS_PER_MESSAGE
 
             if over_char_cap:
-                # A new embed doesn't help — the char budget is shared
-                # across the whole message — so start a fresh message
+                # A new embed doesn't help, the char budget is shared
+                # across the whole message, so start a fresh message
                 # with its own budget.
                 messages.append([new_embed()])
                 message_chars = len(title) + len(footer_text)
@@ -909,7 +909,7 @@ class Notifier:
                 else:
                     # A new embed within the SAME message still repeats
                     # its own title + footer text, and Discord counts
-                    # those again toward the shared 6000-char budget —
+                    # those again toward the shared 6000-char budget,
                     # this is exactly what the earlier version missed.
                     current_message.append(new_embed())
                     message_chars += len(title) + len(footer_text)
@@ -932,7 +932,7 @@ class Notifier:
         stores the message ID; otherwise logs the error.
         WHY: Separated from `_send_discord` so the HTTP mechanics
         (request, status handling, cleanup trigger) are isolated from
-        webhook-URL resolution and embed construction — this method's
+        webhook-URL resolution and embed construction, this method's
         only job is "send this payload and handle what comes back."
 
         Args:
@@ -974,7 +974,7 @@ class Notifier:
         """
         # ── Environment gate ─────────────────────────────────────
         # WHY: In production (the real GitHub Actions run), we send
-        # to the real DISCORD_WEBHOOK_URL exactly as always — this
+        # to the real DISCORD_WEBHOOK_URL exactly as always, this
         # branch is unchanged from before environment-awareness was
         # added. In dev/staging (a local test run), we must NOT post
         # to that same real, live channel. If the operator has set
@@ -987,14 +987,14 @@ class Notifier:
         else:
             dev_webhook_url = self.secrets.get("discord_webhook_url_dev")
             if not dev_webhook_url:
-                print("[Notifier] Non-production environment — would "
+                print("[Notifier] Non-production environment, would "
                       "send to Discord but DISCORD_WEBHOOK_URL_DEV not "
                       "set, skipping.")
                 return
             webhook_url = dev_webhook_url
 
         if not webhook_url:
-            print("  [Notifier] Discord not configured — set "
+            print("  [Notifier] Discord not configured, set "
                   "DISCORD_WEBHOOK_URL env var.")
             return
 
@@ -1020,7 +1020,7 @@ class Notifier:
         """
         Post a price-drop alert to a Discord channel via webhook.
 
-        WHAT: The price-drop counterpart to _send_discord() above —
+        WHAT: The price-drop counterpart to _send_discord() above,
         same webhook resolution (prod vs. dev/staging gating) and same
         send-one-message-per-page loop, just building price-drop
         embeds instead of new-deal embeds.
@@ -1028,7 +1028,7 @@ class Notifier:
         Args:
             price_drops: (listing, old_price) pairs.
         """
-        # ── Environment gate — identical reasoning to _send_discord()
+        # ── Environment gate, identical reasoning to _send_discord()
         # above: never post price-drop alerts to the real production
         # channel from a local/staging test run.
         if is_production():
@@ -1036,14 +1036,14 @@ class Notifier:
         else:
             dev_webhook_url = self.secrets.get("discord_webhook_url_dev")
             if not dev_webhook_url:
-                print("[Notifier] Non-production environment — would "
+                print("[Notifier] Non-production environment, would "
                       "send price-drop alert to Discord but "
                       "DISCORD_WEBHOOK_URL_DEV not set, skipping.")
                 return
             webhook_url = dev_webhook_url
 
         if not webhook_url:
-            print("  [Notifier] Discord not configured — set "
+            print("  [Notifier] Discord not configured, set "
                   "DISCORD_WEBHOOK_URL env var.")
             return
 
@@ -1062,14 +1062,14 @@ class Notifier:
         webhook.
 
         WHAT: The scooped-deal counterpart to _send_discord() /
-        _send_discord_price_drop() above — same webhook resolution
+        _send_discord_price_drop() above, same webhook resolution
         (prod vs. dev/staging gating) and same send-one-message-per-
         page loop, just building scooped-deal embeds instead.
 
         Args:
             scooped: Great-deal listings that expired fast.
         """
-        # ── Environment gate — identical reasoning to _send_discord()
+        # ── Environment gate, identical reasoning to _send_discord()
         # above: never post to the real production channel from a
         # local/staging test run.
         if is_production():
@@ -1077,14 +1077,14 @@ class Notifier:
         else:
             dev_webhook_url = self.secrets.get("discord_webhook_url_dev")
             if not dev_webhook_url:
-                print("[Notifier] Non-production environment — would "
+                print("[Notifier] Non-production environment, would "
                       "send scooped-deal alert to Discord but "
                       "DISCORD_WEBHOOK_URL_DEV not set, skipping.")
                 return
             webhook_url = dev_webhook_url
 
         if not webhook_url:
-            print("  [Notifier] Discord not configured — set "
+            print("  [Notifier] Discord not configured, set "
                   "DISCORD_WEBHOOK_URL env var.")
             return
 
@@ -1110,7 +1110,7 @@ class Notifier:
         Args:
             matches: (watchlist_entry, listing) pairs to alert on.
         """
-        # ── Environment gate — identical reasoning to _send_discord()
+        # ── Environment gate, identical reasoning to _send_discord()
         # above: never post to the real production channel from a
         # local/staging test run.
         if is_production():
@@ -1118,14 +1118,14 @@ class Notifier:
         else:
             dev_webhook_url = self.secrets.get("discord_webhook_url_dev")
             if not dev_webhook_url:
-                print("[Notifier] Non-production environment — would "
+                print("[Notifier] Non-production environment, would "
                       "send watchlist alert to Discord but "
                       "DISCORD_WEBHOOK_URL_DEV not set, skipping.")
                 return
             webhook_url = dev_webhook_url
 
         if not webhook_url:
-            print("  [Notifier] Discord not configured — set "
+            print("  [Notifier] Discord not configured, set "
                   "DISCORD_WEBHOOK_URL env var.")
             return
 
