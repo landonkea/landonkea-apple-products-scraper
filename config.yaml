@@ -1,5 +1,5 @@
 # ───────────────────────────────────────────────────────────────────
-# CONFIGURATION FILE — landonkea-mac-deal-alert-scraper
+# CONFIGURATION FILE — landonkea-apple-products-scraper
 # ───────────────────────────────────────────────────────────────────
 # This is the ONLY file you need to edit to change what you're
 # searching for.  Every setting here is read at runtime.
@@ -8,37 +8,127 @@
 # values below.  No code changes needed.
 # ───────────────────────────────────────────────────────────────────
 
+# ── PRODUCT GENERATIONS ─────────────────────────────────────────────
+# This is the ONE place you touch when Apple ships something new.
+# Each family below defines "the current generation" and how many
+# generations back to also search.  Searches that reference a family
+# via `generation_family:` automatically get a rolling window —
+# e.g. current_gen: 5, lookback: 3 on mac_chip means "search M5 Max,
+# M4 Max, and M3 Max."  Bump current_gen once a year; nothing else
+# needs to change.
+generations:
+  mac_chip:
+    tier: "Max"          # flagship tier suffix — MacBook Pro's best chip bin
+    current_gen: 5         # bump to 6 when Apple ships M6
+    lookback: 3              # search current_gen, current_gen-1, current_gen-2
+    # Flagship CPU/GPU core counts per generation. Best-effort and
+    # used only to give a small scoring bonus to listings that state
+    # the top-bin core count for their chip — never a hard filter,
+    # since most listings don't mention core counts at all. Update
+    # these once you confirm the real spec-sheet numbers for a new gen.
+    core_counts:
+      5: {cpu: 18, gpu: 40}
+      4: {cpu: 16, gpu: 40}
+      3: {cpu: 16, gpu: 40}
+
+  iphone_pro_max:
+    tier: "Pro Max"
+    current_gen: 17        # bump when Apple ships the next iPhone
+    lookback: 3              # search 17/16/15 Pro Max
+
+  ipad_pro:
+    tier: ""                # iPad Pro uses base M chips (M5, M4, M3), not "Pro" tier
+    current_gen: 5          # bump to 6 when Apple ships M6 iPad Pro
+    lookback: 3             # search M5/M4/M3 iPad Pro
+    # Empty tier means this generates chip_options: ["M5", "M4", "M3"]
+    # See _expand_generation() in config.py for how this works
+
 # ── WHAT TO SEARCH FOR ─────────────────────────────────────────────
-# These are the specs that ALL listings must match (or be close to).
-# The scraper will check every listing against these filters.
-search:
-  product_name: "MacBook Pro"           # Base product name
-  model_year: "2026"                    # Model year (for Apple Refurb etc.)
-  chip: "M5 Max"                       # Chip to search for
-  chip_fallback: "M5 Max"              # Keep same — no fallback chip
+# List of products to search for.  The scraper runs once per product
+# and alerts you about the best deals on each one.
+# Add a new entry to search for a different product.
+# ── PRODUCT TYPES ────────────────────────────────────────────────────
+# `product_type` on a search entry below picks which handler (in
+# src/product_types/) owns matching/scoring for that search. Defaults
+# to "electronics" if omitted — that's the only type that exists
+# today (MacBook Pro / iPhone). To search a whole new category later
+# (the user's own example: dress boots), see src/product_types/base.py
+# for exactly what a new type needs to implement, then add a new
+# `searches:` entry here with `product_type: <your new type name>`.
+# The general marketplaces below (eBay, Swappa, Mercari, OfferUp,
+# BackMarket) will search that new category for free, since they
+# build queries from product_name alone — no per-site config needed.
+# Apple-only storefronts (Apple Refurb, BestBuy, Newegg, Gazelle) are
+# marked `applicable_product_types: [electronics]` below so they're
+# automatically skipped for a non-electronics search instead of
+# wasting a request. A brand-new category's OWN dedicated retailers
+# (e.g. Zappos for boots) still need their own scraper written from
+# scratch, the same way src/scrapers/backmarket.py was.
 
-  # Screen size: we ONLY want 14-inch.  No fallback.
-  screen_size_inches: 14
-  screen_size_fallback: ~              # ~ means "null / no fallback"
+searches:
+  # ── MacBook Pro (14" preferred, 16" fallback; last 3 Max chip
+  # generations via mac_chip above) ────────────────────────────
+  - product_name: "MacBook Pro"
+    product_type: electronics
+    generation_family: mac_chip
+    screen_sizes: [14, 16]   # order = preference: 14" preferred, 16" fallback
+    ram_gb_primary: 128
+    ram_gb_fallback: 64
+    storage_gb_min: 1024    # 1TB minimum; no max — 1/2/4/6/8TB all valid,
+    storage_gb_max: ~        # bigger just scores a little higher (see price_analyzer.py)
+    location: ~
+    results_per_size: 30
 
-  # RAM — you want 128GB primarily, 64GB as a backup.
-  # The scraper will alert for BOTH, but label 64GB as "fallback RAM".
-  ram_gb_primary: 128
-  ram_gb_fallback: 64
+  # ── iPhone Pro Max (1TB+; last 3 generations via iphone_pro_max
+  # above — currently 17/16/15 Pro Max) ─────────────────────────
+  - product_name: "iPhone Pro Max"
+    product_type: electronics
+    generation_family: iphone_pro_max
+    screen_sizes: []
+    ram_gb_primary: ~
+    ram_gb_fallback: ~
+    storage_gb_min: 1000  # 1TB minimum (also covers 2TB)
+    storage_gb_max: ~
+    location: ~
+    results_per_size: 30
 
-  # Storage: you don't care.  Any size is fine.
-  # "null" means "accept any storage size".
-  storage_gb_min: ~
-  storage_gb_max: ~
+  # ── iPad Pro (13-inch M5 preferred, 11-inch fallback;
+  # 16GB RAM; 512GB+ storage; WiFi + Cellular;
+  # last 3 generations via ipad_pro above — M5/M4/M3) ──
+  - product_name: "iPad Pro"
+    product_type: electronics
+    generation_family: ipad_pro
+    screen_sizes: [13, 11]  # 13-inch preferred, 11-inch fallback
+    ram_gb_primary: 16      # 16GB RAM
+    ram_gb_fallback: ~
+    storage_gb_min: 512     # 512GB minimum
+    storage_gb_max: ~
+    cellular: true          # WiFi + Cellular models only
+    location: ~
+    results_per_size: 30
 
-  # CPU / GPU cores: only the flagship M5 Max config
-  cpu_cores_min: 18
-  gpu_cores_min: 40
-
-  # Allow both auctions AND Buy It Now — if there's a great deal
-  # at auction you can bid on it. The only thing we filter out is
-  # classified/person-to-person listings (Craigslist, etc.).
-  buy_it_now_only: false
+  # ── EXAMPLE: a second, non-electronics product_type ────────────
+  # Commented out on purpose -- this repo's owner only wants their
+  # Discord channel alerting on MacBook Pro/iPhone deals, so this
+  # stays inert rather than live in production. It exists to show
+  # the pluggable architecture actually works for a category with a
+  # completely different field set (size/brand/color, no chip/RAM/
+  # storage at all) -- see src/product_types/apparel.py and
+  # tests/test_product_types_apparel.py for the handler this drives
+  # and proof it works end to end without this entry being active.
+  # Uncomment to actually search for boots on the general
+  # marketplaces (eBay, Swappa, Mercari, OfferUp, BackMarket,
+  # Craigslist, Facebook) -- they need zero code changes since they
+  # already build queries from product_name alone. Apple-only sites
+  # (Apple Refurb, BestBuy, Newegg, Gazelle) automatically sit this
+  # out via their `applicable_product_types: [electronics]` below.
+  # - product_name: "Red Wing Iron Ranger"
+  #   product_type: apparel
+  #   sizes: [10, 10.5, 11]
+  #   preferred_brands: ["Red Wing", "Wolverine"]
+  #   colors: ["black", "brown", "oxblood"]
+  #   location: ~
+  #   results_per_size: 20
 
 # ── PRICE THRESHOLDS ───────────────────────────────────────────────
 # These determine what counts as a "deal worth alerting about".
@@ -52,19 +142,58 @@ price:
   # Based on research: 128GB models retail ~$6,200-9,700 new.
   # A great deal on 128GB would be under $5,000 (~25%+ off retail).
   # For 64GB, under $4,000.
+  # For iPad Pro 16GB, under $900 (~25%+ off retail).
   great_deal_usd:
     128: 5000    # 128GB: alert if under $5,000
     64:  4000    # 64GB:  alert if under $4,000
+    16:  900     # iPad Pro 16GB: alert if under $900
 
   # "Good deal" threshold — worth checking but less urgent.
   good_deal_usd:
     128: 5500    # 128GB: worth looking at under $5,500
     64:  4500    # 64GB:  worth looking at under $4,500
+    16:  1000    # iPad Pro 16GB: worth looking at under $1,000
 
   # Number of top deals to include in each alert email
   # Increased from 15 to 25 to account for more scraping sources
   # (Best Buy, OfferUp, and future Facebook + Amazon).
-  top_deals_count: 25
+  top_deals_count: 40
+
+  # ── Suspicious-price safeguard ─────────────────────────────────
+  # A listing priced way below the rest of its batch AND claiming to
+  # be new/sealed is more likely mislabeled, a scam, or a typo than a
+  # genuine steal. See src/price_analyzer.py's module docstring for
+  # the full story (a real "New Sealed" iPhone found at $238 against
+  # a ~$1,400 true price prompted this).
+  # Flag a listing if its price is under this fraction of the batch
+  # median AND it claims new/sealed condition.
+  suspicious_price_ratio: 0.5
+  # Only apply the check once a batch has at least this many listings
+  # (so a tiny batch doesn't produce a meaningless "median").
+  suspicious_min_sample: 3
+
+  # ── Per-source reliability scoring ──────────────────────────────
+  # Optional overrides/additions to price_analyzer.py's
+  # DEFAULT_SOURCE_RELIABILITY_BONUS map. Leave empty (the default)
+  # to use the built-in defaults for every source. Example: retune
+  # just OfferUp without touching every other source's default:
+  #   source_reliability:
+  #     offerup: -5
+  source_reliability: {}
+
+# ── PRICE DROP ALERTS ───────────────────────────────────────────────
+# A SEPARATE alert type from the "great/good deal" thresholds above.
+# Those fire when a listing is first discovered; this fires when a
+# listing we've ALREADY seen before drops in price on a later scrape
+# (e.g. a seller cuts $300 off an existing eBay listing).
+#
+# Requires BOTH a minimum percent AND a minimum dollar drop before
+# alerting, so a $5 price wiggle or a 1% rounding change never spams
+# Discord — only look at drops that clear both bars.
+price_drop:
+  enabled: true
+  min_drop_percent: 5   # must drop by at least 5%...
+  min_drop_usd: 50      # ...AND at least $50, whichever is stricter in context
 
 # ── WHAT SITES TO SCRAPE ───────────────────────────────────────────
 # Set a site to "enabled: false" to skip it without deleting it.
@@ -84,8 +213,14 @@ sites:
 
   apple_refurb:
     enabled: true
-    # Apple's Certified Refurbished store
-    search_url: "https://www.apple.com/shop/refurbished/mac/2026-macbook-pro"
+    # Apple's own store only ever sells Apple electronics.
+    applicable_product_types: [electronics]
+    # NOTE: this search_url is not actually used — src/scrapers/
+    # apple_refurb.py hits Apple's evergreen "14-inch-macbook-pro" /
+    # "16-inch-macbook-pro" refurb pages directly (those URLs aren't
+    # year- or chip-specific, so they never need updating). Kept here
+    # only for reference.
+    search_url: "https://www.apple.com/shop/refurbished/mac"
 
   backmarket:
     enabled: true
@@ -97,6 +232,9 @@ sites:
 
   bestbuy:
     enabled: true
+    # General electronics retailer, but its scraper/query only ever
+    # targets Apple gear today.
+    applicable_product_types: [electronics]
     # Best Buy Open Box — returned/inspected items at a discount.
     # The scraper uses the "af=condition%3Aopen+box" URL filter
     # and also validates condition text in each listing card.
@@ -108,6 +246,83 @@ sites:
     # tries JSON-LD, Next.js data, and the internal API.  If
     # none work, it logs instructions for Playwright setup.
     search_url: "https://offerup.com/search/?q={{query}}"
+
+  newegg:
+    enabled: true
+    # Electronics retailer — never carries apparel or other
+    # non-electronics categories.
+    applicable_product_types: [electronics]
+    # Newegg's third-party marketplace carries Refurbished/Used Apple
+    # gear. No login required. The scraper uses a bare product-name
+    # query (`d={{query}}`) with Newegg's default relevance sort —
+    # see src/scrapers/newegg.py's module docstring for why appending
+    # chip/screen-size terms or a price-ascending sort (both used by
+    # other scrapers here) actively hurts result quality on Newegg.
+    search_url: "https://www.newegg.com/p/pl?d={{query}}"
+
+  gazelle:
+    enabled: true
+    # Used-electronics reseller only — phones/tablets/laptops, no
+    # apparel or other categories.
+    applicable_product_types: [electronics]
+    # Gazelle's actual storefront lives on buy.gazelle.com (a Shopify
+    # store) — www.gazelle.com 404s on collection/product/search
+    # routes. The scraper hits buy.gazelle.com's public Shopify JSON
+    # endpoints directly: /collections/{handle}/products.json for
+    # known per-generation collections (e.g. iphone-17-pro-max), and
+    # /search/suggest.json as a site-wide fallback. Gazelle does not
+    # currently stock MacBooks (confirmed live — see gazelle.py's
+    # module docstring), so the MacBook Pro search legitimately finds
+    # 0 listings here today.
+    search_url: "https://buy.gazelle.com/search/suggest.json?q={{query}}&resources[type]=product"
+
+  craigslist:
+    enabled: true
+    # General local classifieds — applies to every product type
+    # (like eBay/Swappa/Mercari/OfferUp/BackMarket), so
+    # applicable_product_types is left unset.
+    #
+    # Craigslist is organized by CITY/METRO REGION, not by state —
+    # each region has its own URL slug (e.g. "phoenix", "tucson"), and
+    # a single state maps to several regions (e.g. California alone
+    # has 20+). `regions` is a LIST so this scraper can "cast a wide
+    # net" across multiple metros/states in one run — the scraper
+    # loops over every entry here, aggregating results, with a polite
+    # delay between each request (see BaseScraper.fetch_page). Cross-
+    # source AND cross-region dedup is handled downstream in main.py
+    # by source+listing_id, so listing the same metro twice or having
+    # overlapping results across regions is harmless.
+    #
+    # Investigated Craigslist's "search nearby areas" feature first
+    # (see scrapers/craigslist.py's module docstring LIVE-TESTING
+    # FINDINGS) — it does not exist on the current consolidated
+    # www.craigslist.org/search/area/{region} search host (no
+    # searchNearby param, no nearby-areas UI element found live), so
+    # enumerating region slugs below is the only way to cover multiple
+    # states.
+    #
+    # WHICH REGIONS TO SEARCH IS DELIBERATELY NOT SET HERE: your real
+    # region list reveals your approximate location (which metros
+    # you're near), so it lives in config.local.yaml instead — a
+    # gitignored file that overrides this one at runtime (see
+    # config.local.yaml.example for the format and load_config()'s
+    # docstring in src/config.py for how the merge works). In CI, the
+    # real list comes from the CRAIGSLIST_REGIONS_YAML GitHub Secret
+    # instead (see .github/workflows/scrape*.yml) — it's never
+    # committed anywhere. The single region below is just a working
+    # placeholder so this file runs out of the box with zero setup;
+    # replace it via config.local.yaml, don't edit it here.
+    regions:
+      - "newyork"        # placeholder — see comment above
+    # NOTE: this search_url is not actually used programmatically —
+    # src/scrapers/craigslist.py builds the real URL itself (it needs
+    # to interpolate `region` and a server-side max_price filter, and
+    # the actual live search host is the consolidated
+    # www.craigslist.org/search/area/{region} form, not a per-city
+    # subdomain — see that file's module docstring LIVE-TESTING
+    # FINDINGS for exactly what was verified live). Kept here only as
+    # a human-readable reference of the URL shape.
+    search_url: "https://www.craigslist.org/search/area/{{region}}?cat=sss&query={{query}}&max_price={{max_price}}"
 
   # Facebook Marketplace requires a login — we handle this via
   # environment variables for the session cookie.
@@ -132,10 +347,24 @@ alerts:
     enabled: true
 
 # ── RUN SCHEDULE ───────────────────────────────────────────────────
-# How often to run the scraper.
-# This is a cron expression.  "0 */6 * * *" = every 6 hours.
+# .github/workflows/scrape.yml's trigger fires every hour, but each
+# firing only does real work if the current UTC hour is listed below
+# -- everything else exits in a few seconds (see that workflow's
+# "Check if this hour should run" step). Edit this list any time; it
+# takes effect on the next hourly firing, no workflow/code change or
+# redeploy needed.
+#
+# guaranteed_hours_utc: hours that always run. 13 = 6am America/Phoenix
+# (UTC-7 year-round -- Arizona doesn't observe DST, so this doesn't
+# drift twice a year the way most US timezones would).
+#
+# additional_hours_utc: extra run hours beyond the guaranteed ones,
+# e.g. [1, 7, 19] for four runs/day spread out. Empty by default --
+# add hours here if you want fresher data than once a day and are
+# fine with the added GitHub Actions usage.
 schedule:
-  cron: "0 */6 * * *"
+  guaranteed_hours_utc: [13]
+  additional_hours_utc: []
 
 # ── DATABASE ───────────────────────────────────────────────────────
 database:

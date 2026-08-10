@@ -9,7 +9,7 @@
 import re
 from typing import Optional
 
-from scrapers.base import BaseScraper, ScrapedListing
+from scrapers.base import BaseScraper, ScrapedListing, MINIMUM_IPHONE_PRICE_USD, MINIMUM_PRICE_USD
 from config import Config
 
 
@@ -17,11 +17,8 @@ class eBayScraper(BaseScraper):
     """
     Scrapes eBay for MacBook Pro M5 Max listings.
     
-    eBay search URLs look like:
-      https://www.ebay.com/sch/i.html?_nkw=macbook+pro+m5+max+128gb&LH_BIN=1
-    
-    LH_BIN=1 means "Buy It Only" (no auctions).
-    _sop=15 means "sorted by price + shipping: lowest first".
+    Uses Playwright to render the page (bypasses eBay's bot detection).
+    Falls back to plain requests if Playwright fails.
     """
     
     def __init__(self, config: Config):
@@ -29,110 +26,230 @@ class eBayScraper(BaseScraper):
         super().__init__(config)
         self.source_name = "ebay"
     
-    def _build_search_url(self, ram_gb: int) -> str:
+    def _build_search_url(self, screen_size: Optional[int]) -> str:
         """
-        Build an eBay search URL for a specific RAM configuration.
-        
-        eBay uses query parameters in the URL:
-          _nkw    = the search keywords
-          LH_BIN  = 1 means "Buy It Now" only
-          _sop    = sort order (15 = price + shipping: lowest first)
-          _udhi   = max price (upper bound)
-        
+        Build an eBay search URL for a specific screen size.
+
+        Searches for "MacBook Pro 14-inch" / "MacBook Pro 16-inch",
+        sorted by lowest price + shipping first.
+
+        WHY the chip/model OR-group matters: eBay's own text-relevance
+        ranking is what actually filters results, since this scraper
+        only fetches page 1 (~100-120 items) with no pagination. A bare
+        "MacBook Pro 14-inch" query sorted price-ascending returns cases,
+        screen protectors, and base-chip listings under $300 before it
+        ever reaches a $2,000+ M5/M4/M3 Max machine — page 1 never
+        contains a single matching listing. Appending the generations
+        we actually want as an eBay OR-group (`(M5 Max,M4 Max,M3 Max)`
+        — eBay's comma-in-parentheses syntax for "any of these terms")
+        makes eBay's own search put matching listings on page 1 instead
+        of relying on client-side filtering of an irrelevant page.
+
+        WHY a minimum-price floor is also needed (iPhone specifically):
+        the OR-group alone isn't enough for iPhone — a real production
+        check found page 1 of "iPhone Pro Max (iPhone 17 Pro Max,...)"
+        was 122/122 items, ALL $0.99-$4.95 accessories (screen
+        protectors, camera lens covers, USB-C dust plugs, adhesive
+        tape, antenna boosters...), because accessory titles routinely
+        contain "iPhone 15 Pro Max" etc. (it's compatibility text, not
+        spec text) — so eBay's relevance ranking can't distinguish them
+        from real phones the way it can for MacBook chip names. A
+        negative-keyword blacklist doesn't scale here — sellers use
+        far too many accessory-category terms to enumerate. eBay's
+        `_udlo` (price floor) parameter is more robust: it excludes
+        every sub-$100 listing at the source, regardless of category,
+        since a real iPhone is never listed under $100.
+
         Args:
-            ram_gb: RAM in GB (128 or 64).
-        
+            screen_size: Screen size in inches (14 or 16), or None for products without screen sizes.
+
         Returns:
-            A fully-formed eBay search URL.
+            A fully-formed eBay search URL sorted by price ascending.
         """
-        # Build the search query string
         product = self.config.search.product_name
-        chip = self.config.search.chip
-        screen = self.config.search.screen_size_inches
-        
-        query = f"{product} {screen}-inch {chip} {ram_gb}GB"
-        
-        # URL-encode the query (replace spaces with +)
-        encoded_query = query.replace(" ", "+")
-        
-        # Get the max price threshold
         max_price = int(self.config.price.absolute_max_usd)
-        
-        # Build the URL
+
+        if screen_size:
+            query = f"{product} {screen_size}-inch"
+        else:
+            query = product
+
+        # Narrow eBay's own ranking to the generations we're tracking —
+        # see the docstring above for why this is necessary, not optional.
+        generation_terms = self.config.search.chip_options or self.config.search.model_keywords
+        if generation_terms:
+            query += " (" + ",".join(generation_terms) + ")"
+
+        if "iphone" in product.lower():
+            # Negative keywords AND a price floor both proved
+            # insufficient in practice — eBay's iPhone-accessory
+            # long tail is effectively infinite (gimbal stabilizers,
+            # camera lens attachments, keyboards, OEM parts...), and
+            # designer/luxury cases price right at $100+, so no
+            # blacklist or floor fully clears page 1. What actually
+            # works: requiring a storage-capacity term, since real
+            # phone listings always state it ("256GB", "1TB") and
+            # accessories essentially never do — this is a positive
+            # signal instead of an unwinnable exclusion list.
+            storage_terms = []
+            if self.config.search.storage_gb_min and self.config.search.storage_gb_min >= 1000:
+                storage_terms = ["1TB", "2TB"]
+            if storage_terms:
+                query += " (" + ",".join(storage_terms) + ")"
+
+        encoded_query = query.replace(" ", "+")
+
+        # Server-side price floor — cheap defense-in-depth alongside
+        # the storage-term requirement above.
+        min_price = MINIMUM_IPHONE_PRICE_USD if "iphone" in product.lower() else MINIMUM_PRICE_USD
+
         url = (
             f"https://www.ebay.com/sch/i.html"
             f"?_nkw={encoded_query}"
-            # NOTE: LH_ItemCondition includes Auctions (3000)                            
-            # so users can bid on great deals too.
-            f"&LH_ItemCondition=4|3|2|1500|1000|2000" # Any condition
-            f"&_sop=15"                               # Sort: lowest price + shipping
-            f"&_udhi={max_price}"                     # Max price filter
-            f"&_ipg=120"                              # 120 results per page
+            f"&LH_ItemCondition=4|3|2|1500|1000|2000"
+            f"&_sop=15"
+            f"&_udlo={min_price}"
+            f"&_udhi={max_price}"
+            f"&_ipg=120"
         )
-        
+
         return url
     
     def _parse_listing_id(self, url: str) -> str:
-        """
-        Extract the unique eBay item ID from a listing URL.
-        
-        eBay URLs look like:
-          https://www.ebay.com/itm/123456789012
-          https://www.ebay.com/p/1234567890
-        
-        Args:
-            url: The eBay listing URL.
-        
-        Returns:
-            The item ID as a string.
-        """
-        # eBay item IDs are in the URL as /itm/XXXXXXXXXXX or /p/XXXXXXXXX
+        """Extract the unique eBay item ID from a listing URL."""
         match = re.search(r'/itm/(\d+)', url)
         if match:
             return match.group(1)
         match = re.search(r'/p/(\d+)', url)
         if match:
             return f"p_{match.group(1)}"
-        # Fallback: hash the URL
         return f"url_{hash(url)}"
+    
+    def _fetch_listings_json(self, search_url: str) -> str:
+        """
+        Fetch eBay search results using Playwright.
+        
+        Warms up with the homepage first (sets cookies, passes bot
+        check) in the SAME browser session, then navigates to the
+        actual search URL.  Cookies carry over because we keep the
+        browser open.
+        
+        Args:
+            search_url: The eBay search URL to scrape.
+        
+        Returns:
+            The search page HTML as a string.
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+            
+            with sync_playwright() as playwright:
+                # Launch a headless Chromium browser
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox",
+                          "--disable-dev-shm-usage"],
+                )
+                
+                # Create a real-looking browser context
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US",
+                )
+                page = context.new_page()
+                
+                # Step 1: Warm up with the homepage
+                # This sets eBay session cookies and proves we are
+                # a real browser, not a bot.
+                page.goto("https://www.ebay.com", wait_until="domcontentloaded", timeout=15000)
+                page.wait_for_timeout(3000)
+                
+                # Step 2: Navigate to the actual search URL
+                # The session cookies from step 1 carry over.
+                page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(3000)
+                
+                # Get the page HTML
+                html = page.content()
+                browser.close()
+                return html
+                
+        except Exception as e:
+            raise Exception(f"Playwright failed: {e}") from e
     
     def scrape(self) -> list[ScrapedListing]:
         """
-        Scrape eBay for matching MacBook Pro listings.
+        Scrape eBay for MacBook Pro listings sorted by price ascending.
         
-        Searches twice: once for 128GB, once for 64GB.
-        Returns all matching listings up to absolute_max_usd.
+        Iterates over configured screen sizes, takes top N cheapest
+        per size.
         
         Returns:
             A list of ScrapedListing objects.
         """
         found: list[ScrapedListing] = []
+        found_ids: set = set()
         
-        # Search for both RAM configurations
-        for ram in [128, 64]:
-            search_url = self._build_search_url(ram)
+        screen_sizes = self.config.search.screen_sizes
+        sizes_to_search = screen_sizes if screen_sizes else [None]
+        
+        for screen_size in sizes_to_search:
+            search_url = self._build_search_url(screen_size)
+            html = None
             
+            # Try Playwright first (bypasses bot detection)
             try:
-                html = self.fetch_page(search_url)
-                soup = self.parse_html(html)
+                html = self._fetch_listings_json(search_url)
             except Exception as e:
-                print(f"  [eBay] Error fetching search page: {e}")
+                print(f"  [eBay] Playwright failed: {e}, trying plain request...")
+                try:
+                    html = self.fetch_page(search_url)
+                except Exception as e2:
+                    print(f"  [eBay] Plain request also failed: {e2}")
+                    continue
+            
+            if not html:
                 continue
             
-            # ── Parse search results ────────────────────────────────
-            # eBay search results are in <div class="s-item__info">.
-            # Each result has a title link and a price.
+            soup = self.parse_html(html)
             
-            # Find all listing containers
-            items = soup.select("li.s-item")
+            # Try Playwright-rendered selectors first
+            items = soup.select("li.s-card")
+            if not items:
+                items = soup.select("div.s-card")
+            if not items:
+                items = soup.select("[class*='s-card']")
+            if not items:
+                items = soup.select("li[data-viewport]")
+            if not items:
+                items = soup.select("div[data-viewport]")
+            # Fallback: server-rendered eBay HTML (plain request)
+            if not items:
+                items = soup.select("li.s-item")
+            if not items:
+                items = soup.select(".s-item__wrapper")
+            if not items:
+                items = soup.select("[data-view*='grid'] li")
+            if not items:
+                items = soup.select("[id*='srp-river'] li")
+            if not items:
+                items = soup.select("ul.srp-results li")
+            
+            results_for_size = 0
+            max_results = self.config.search.results_per_size
             
             for item in items:
+                if results_for_size >= max_results:
+                    break
                 try:
                     listing = self._parse_single_item(item)
-                    if listing and self.passes_filters(listing):
-                        found.append(listing)
-                except Exception as e:
-                    # Skip any listing that fails to parse
+                    if listing and listing.listing_id not in found_ids:
+                        if self.passes_filters(listing):
+                            found.append(listing)
+                            found_ids.add(listing.listing_id)
+                            results_for_size += 1
+                except Exception:
                     continue
         
         print(f"  [eBay] Found {len(found)} matching listings")
@@ -148,9 +265,18 @@ class eBayScraper(BaseScraper):
         Returns:
             A ScrapedListing or None if parsing fails.
         """
-        # ── Title and URL ───────────────────────────────────────
-        title_elem = item.select_one("a.s-item__link .s-item__title")
-        link_elem = item.select_one("a.s-item__link")
+        # Try Playwright-rendered selectors first
+        title_elem = item.select_one(".s-card__title")
+        link_elem = item.select_one(".su-card-container__header a.s-card__link")
+        price_elem = item.select_one(".s-card__price")
+        condition_elem = item.select_one(".s-card__subtitle")
+        
+        # Fallback: server-rendered selectors
+        if not title_elem or not link_elem:
+            title_elem = item.select_one(".s-item__title")
+            link_elem = item.select_one("a.s-item__link")
+            price_elem = item.select_one(".s-item__price")
+            condition_elem = item.select_one(".s-item__subtitle")
         
         if not title_elem or not link_elem:
             return None
@@ -158,48 +284,38 @@ class eBayScraper(BaseScraper):
         title = title_elem.get_text(strip=True)
         url = link_elem.get("href", "")
         
-        # Skip the first "Shop on eBay" header item
         if not title or "Shop on eBay" in title:
             return None
         
-        # Skip "Contact seller" or classified listings
         if "contact seller" in title.lower():
             return None
         
-        # ── Price ───────────────────────────────────────────────
-        price_elem = item.select_one(".s-item__price")
         if not price_elem:
             return None
         
         price_text = price_elem.get_text(strip=True)
-        # eBay prices look like "$3,999.00" or "From $3,999.00"
         price_match = re.search(r'\$?([0-9,]+(?:\.[0-9]{2})?)', price_text)
         if not price_match:
             return None
         
         price = float(price_match.group(1).replace(",", ""))
         
-        # Skip auction-style listings (shouldn't happen with LH_BIN=1,
-        # but some listings slip through)
-        if "bid" in item.get_text(strict=True).lower():
+        if "bid" in item.get_text(strip=True).lower():
             return None
         
-        # ── Listing ID ──────────────────────────────────────────
         listing_id = self._parse_listing_id(url)
         
-        # ── Condition ───────────────────────────────────────────
-        condition_elem = item.select_one(".s-item__condition")
         condition = condition_elem.get_text(strip=True) if condition_elem else None
         
-        # ── Parse specs from title ──────────────────────────────
-        ram = self.extract_ram(title)
-        storage = self.extract_storage(title)
-        screen = self.extract_screen(title)
-        chip = self.extract_chip(title)
-        
-        # If we can't find RAM in the title, use the search context
+        specs = self.parse_common_specs(title)
+        ram = specs["ram_gb"]
+        storage = specs["storage_gb"]
+        screen = specs["screen_size"]
+        chip = specs["chip"]
+        cpu_cores = specs["cpu_cores"]
+        gpu_cores = specs["gpu_cores"]
+
         if ram is None:
-            # Check if the URL we built was for 128 or 64
             if "128GB" in url or "128+GB" in url:
                 ram = 128
             elif "64GB" in url or "64+GB" in url:
@@ -216,4 +332,7 @@ class eBayScraper(BaseScraper):
             storage_gb=storage,
             screen_size=screen,
             chip=chip,
+            location=None,
+            cpu_cores=cpu_cores,
+            gpu_cores=gpu_cores,
         )

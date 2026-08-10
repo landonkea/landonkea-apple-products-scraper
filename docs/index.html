@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apple Products Scraper — Price Trends</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #666666;
+    --card-bg: #f7f7f8;
+    --border: #e2e2e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14151a;
+      --fg: #f0f0f2;
+      --muted: #9a9aa2;
+      --card-bg: #1d1e24;
+      --border: #2c2d34;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 24px; font-size: 0.9rem; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+    max-width: 1100px;
+  }
+  .card h2 { font-size: 1.1rem; margin: 0 0 4px; }
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0 16px;
+    flex-wrap: wrap;
+  }
+  .controls button {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .controls button.active {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  .chart-wrap {
+    position: relative;
+    width: 100%;
+    height: 380px;
+  }
+  .empty {
+    color: var(--muted);
+    font-size: 0.9rem;
+    padding: 40px 0;
+    text-align: center;
+  }
+  footer {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+  <h1>Apple Products Scraper — Price Trends</h1>
+  <p class="sub">Daily low / average / high price per product generation, tracked from every scrape run.</p>
+
+  <div class="card">
+    <h2>MacBook Pro</h2>
+    <div class="controls" id="mac-controls"></div>
+    <div class="chart-wrap"><canvas id="mac-chart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>iPhone Pro Max</h2>
+    <div class="controls" id="iphone-controls"></div>
+    <div class="chart-wrap"><canvas id="iphone-chart"></canvas></div>
+  </div>
+
+  <footer id="updated"></footer>
+
+<script>
+const GENERATION_COLORS = [
+  "#4f8bff", // newest
+  "#ff8a4f",
+  "#8a8a8a", // oldest
+];
+
+async function loadData() {
+  const res = await fetch("data/daily_stats.json", { cache: "no-store" });
+  if (!res.ok) return {};
+  return res.json();
+}
+
+function buildChart(canvasId, controlsId, productData) {
+  const canvas = document.getElementById(canvasId);
+  const controlsEl = document.getElementById(controlsId);
+  const groupNames = Object.keys(productData || {});
+
+  if (groupNames.length === 0) {
+    canvas.replaceWith(Object.assign(document.createElement("div"), {
+      className: "empty",
+      textContent: "No data yet — check back after the next scheduled run.",
+    }));
+    return;
+  }
+
+  // Union of all dates across generations, sorted.
+  const allDates = [...new Set(groupNames.flatMap(g => productData[g].map(p => p.date)))].sort();
+
+  let metric = "avg"; // "min" | "avg" | "max"
+
+  const datasets = groupNames.map((group, i) => {
+    const byDate = Object.fromEntries(productData[group].map(p => [p.date, p]));
+    return {
+      label: group,
+      data: allDates.map(d => byDate[d] ? byDate[d][metric] : null),
+      borderColor: GENERATION_COLORS[i % GENERATION_COLORS.length],
+      backgroundColor: GENERATION_COLORS[i % GENERATION_COLORS.length],
+      spanGaps: true,
+      tension: 0.25,
+      pointRadius: 3,
+    };
+  });
+
+  const chart = new Chart(canvas, {
+    type: "line",
+    data: { labels: allDates, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        y: { ticks: { callback: v => "$" + v.toLocaleString() } },
+      },
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: $${ctx.parsed.y?.toLocaleString() ?? "—"}`,
+          },
+        },
+      },
+    },
+  });
+
+  ["min", "avg", "max"].forEach(m => {
+    const btn = document.createElement("button");
+    btn.textContent = m === "min" ? "Lowest" : m === "avg" ? "Average" : "Highest";
+    if (m === metric) btn.classList.add("active");
+    btn.onclick = () => {
+      metric = m;
+      [...controlsEl.children].forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      chart.data.datasets.forEach((ds, i) => {
+        const group = groupNames[i];
+        const byDate = Object.fromEntries(productData[group].map(p => [p.date, p]));
+        ds.data = allDates.map(d => byDate[d] ? byDate[d][metric] : null);
+      });
+      chart.update();
+    };
+    controlsEl.appendChild(btn);
+  });
+}
+
+loadData().then(data => {
+  buildChart("mac-chart", "mac-controls", data["MacBook Pro"]);
+  buildChart("iphone-chart", "iphone-controls", data["iPhone Pro Max"]);
+  document.getElementById("updated").textContent =
+    "Updated automatically every 6 hours by GitHub Actions. Page last loaded: " + new Date().toLocaleString();
+});
+</script>
+</body>
+</html>

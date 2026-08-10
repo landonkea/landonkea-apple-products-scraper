@@ -9,7 +9,7 @@
 # inherits from BaseScraper and implements scrape().
 # ───────────────────────────────────────────────────────────────────
 
-import re
+import random
 import time
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -19,7 +19,31 @@ import requests
 from bs4 import BeautifulSoup
 
 from config import Config
-from database import Listing
+from product_types import PRODUCT_TYPES
+
+# Re-exported for backward compatibility — this logic moved to
+# src/product_types/electronics.py (the electronics ProductTypeHandler)
+# so it's no longer hardcoded into every scraper's base class, but
+# existing direct imports (e.g. tests/test_scrapers.py) keep working
+# unchanged. See src/product_types/base.py for why this moved and how
+# to add a new product type.
+from product_types.electronics import (  # noqa: F401
+    extract_ram_gb,
+    extract_storage_gb,
+    extract_screen_size,
+    extract_chip,
+    extract_core_counts,
+    is_likely_macbook_pro,
+    is_likely_iphone,
+    is_likely_ipad_pro,
+    ACCESSORY_KEYWORDS,
+    IPHONE_ACCESSORY_KEYWORDS,
+    IPHONE_BAD_KEYWORDS,
+    IPAD_ACCESSORY_KEYWORDS,
+    IPAD_BAD_KEYWORDS,
+    MINIMUM_PRICE_USD,
+    MINIMUM_IPHONE_PRICE_USD,
+)
 
 
 # ── Data class for a parsed listing ────────────────────────────────
@@ -42,120 +66,19 @@ class ScrapedListing:
     storage_gb: Optional[int]  # Parsed from title (e.g. 2048, 4096)
     screen_size: Optional[float]  # Parsed from title (e.g. 14.0)
     chip: Optional[str]        # Parsed from title (e.g. "M5 Max")
-
-
-# ── Spec-parsing helpers ───────────────────────────────────────────
-# These extract structured data from messy listing titles like:
-#   "Apple MacBook Pro 14\" M5 Max Chip 128GB Memory 2TB SSD - Space Black"
-
-def extract_ram_gb(title: str) -> Optional[int]:
-    """
-    Find RAM size in a listing title.
-    
-    Looks for patterns like "128GB", "128 GB", "64GB" near "RAM",
-    "Memory", "Unified Memory", or "GB" of memory.
-    
-    Strategy:
-      1. First try to match "N GB" near "RAM"/"Memory" keywords
-         (most reliable).
-      2. Fallback: match any "N GB" where N is a reasonable RAM
-         size (8-256).  Higher numbers are typically storage.
-    
-    Returns:
-        The RAM in GB (e.g. 128), or None if not found.
-    """
-    # Pattern 1: number GB followed by a RAM keyword
-    patterns = [
-        r'(\d+)\s*GB\s*(?:RAM|Memory|Unified\s*Memory)',
-        r'(?:RAM|Memory|Unified\s*Memory)[:\s]*(\d+)\s*GB',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, title, re.IGNORECASE)
-        if match:
-            val = int(match.group(1))
-            if val <= 256:
-                return val
-    
-    # Pattern 2: just "N GB" alone — but only if N is a reasonable
-    # RAM size (not storage).  MacBook Pro RAM configs are:
-    # 8, 16, 24, 32, 36, 48, 64, 96, 128, 192
-    # Storage always starts at 256+ GB.
-    generic_match = re.search(r'(\d+)\s*GB', title, re.IGNORECASE)
-    if generic_match:
-        val = int(generic_match.group(1))
-        # Common RAM sizes: under 256
-        if val <= 256:
-            return val
-    
-    return None
-
-
-def extract_storage_gb(title: str) -> Optional[int]:
-    """
-    Find storage (SSD) size in a listing title.
-    
-    Looks for patterns like "2TB", "2 TB", "512GB", "8TB SSD".
-    
-    Strategy:
-      1. Match "N TB" (always storage).
-      2. Match "N GB SSD" or "N GB Storage" (explicit).
-      3. Match "N GB" where N >= 256 (storage sizes are always
-         at least 256GB on MacBook Pros).
-    
-    Returns:
-        The storage in GB (e.g. 2048 for 2TB), or None.
-    """
-    # Pattern 1: TB always means storage
-    tb_match = re.search(r'(\d+)\s*TB\s*(?:SSD)?', title, re.IGNORECASE)
-    if tb_match:
-        return int(tb_match.group(1)) * 1024
-    
-    # Pattern 2: GB with explicit storage keyword
-    gb_storage = re.search(
-        r'(\d+)\s*GB\s*(?:SSD|Storage)', title, re.IGNORECASE
-    )
-    if gb_storage:
-        return int(gb_storage.group(1))
-    
-    # Pattern 3: "N GB" with N >= 256 (only storage is this big)
-    gb_generic = re.search(r'(\d+)\s*GB', title, re.IGNORECASE)
-    if gb_generic:
-        val = int(gb_generic.group(1))
-        if val >= 256:
-            return val
-    
-    return None
-
-
-def extract_screen_size(title: str) -> Optional[float]:
-    """
-    Find screen size in a listing title.
-    
-    Looks for patterns like:
-      - "14-inch", "14 inch", "14.2-inch"
-      - '14"', '14.2"'
-    """
-    patterns = [
-        r'(\d+(?:\.\d+)?)[\s-]*inch',   # "14-inch" or "14 inch"
-        r'(\d+(?:\.\d+)?)"',             # '14"' or '14.2"'
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, title, re.IGNORECASE)
-        if match:
-            return float(match.group(1))
-    return None
-
-
-def extract_chip(title: str) -> Optional[str]:
-    """
-    Find the chip name in a listing title.
-    
-    Looks for "M5 Max", "M4 Max", "M5 Pro", etc.
-    """
-    match = re.search(r'(M[345]\s*(?:Pro|Max|Ultra))', title, re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-    return None
+    location: Optional[str]    # City/state from the listing
+    cpu_cores: Optional[int] = None  # Parsed from title (e.g. 16-Core CPU)
+    gpu_cores: Optional[int] = None  # Parsed from title (e.g. 40-Core GPU)
+    # ── Apparel-specific fields (see src/product_types/apparel.py) ──
+    # Always None for electronics listings -- only the apparel
+    # ProductTypeHandler's parse_specs() populates these, and only
+    # scrapers running an apparel search ever see non-None values here
+    # (every scraper builds ScrapedListing generically off
+    # parse_common_specs(), so no electronics scraper needs to change
+    # to leave these at their default).
+    size: Optional[float] = None    # US size, e.g. 10.5
+    brand: Optional[str] = None     # e.g. "Red Wing"
+    color: Optional[str] = None     # e.g. "black"
 
 
 # ── Base scraper ──────────────────────────────────────────────────
@@ -185,18 +108,78 @@ class BaseScraper(ABC):
         # HTTP session — reuses connections for speed
         self.session = requests.Session()
         
-        # Custom headers so websites think we're a real browser
-        self.session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/125.0.0.0 Safari/537.36"
-            ),
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        })
+        # Rotate user agent per request to avoid bot detection
+        self._user_agents = [
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        ]
+        
+        # Set default headers (overridden per request)
+        self._update_headers()
     
-    def fetch_page(self, url: str) -> str:
+    def _update_headers(self):
+        """Rotate to a random user agent and set realistic browser headers."""
+        ua = random.choice(self._user_agents)
+        self.session.headers.update({
+            "User-Agent": ua,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            # Let requests/urllib3 manage Accept-Encoding automatically.
+            # Explicitly setting "br" breaks if the brotli package is
+            # not installed — requests returns raw compressed bytes.  
+            "Sec-Ch-Ua": '"Not/A)Brand";v="99", "Google Chrome";v="125", "Chromium";v="125"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"macOS"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+            "Dnt": "1",
+            "Connection": "keep-alive",
+        })
+
+    def fetch_with_playwright(self, url: str, timeout: int = 30000) -> str:
+        """
+        Fetch a page using Playwright (headless Chromium).
+        
+        Use this for sites that block plain requests with 403.
+        Falls back to plain requests if Playwright is not installed.
+        
+        Args:
+            url: The URL to fetch.
+            timeout: Navigation timeout in milliseconds.
+        
+        Returns:
+            The page HTML as a string.
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+            
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox"],
+                )
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US",
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                page.wait_for_timeout(3000)
+                html = page.content()
+                browser.close()
+                return html
+        except Exception as e:
+            raise Exception(f"Playwright failed: {e}") from e
+
+    def fetch_page(self, url: str, max_retries: int = 3) -> str:
         """
         Fetch a web page and return its HTML.
         
@@ -205,19 +188,58 @@ class BaseScraper(ABC):
         
         Args:
             url: The full URL to fetch.
+            max_retries: Number of retries on 403/5xx errors.
         
         Returns:
             The page HTML as a string.
         
         Raises:
-            requests.RequestException if the fetch fails.
+            requests.RequestException if the fetch fails after all retries.
         """
-        # Wait 1-2 seconds between requests to be polite
-        time.sleep(1.5)
+        last_exception: Optional[Exception] = None
         
-        response = self.session.get(url, timeout=30)
-        response.raise_for_status()  # Raise error if 404, 500, etc.
-        return response.text
+        for attempt in range(max_retries):
+            # Rotate user agent on each attempt
+            self._update_headers()
+            
+            # Wait 1-2 seconds between requests to be polite
+            delay = 1.5 + random.random()
+            time.sleep(delay)
+            
+            try:
+                response = self.session.get(url, timeout=30)
+                
+                # If we got blocked (403), try again with different UA
+                if response.status_code == 403:
+                    print(f"  [{self.source_name}] 403 on attempt {attempt + 1}, retrying...")
+                    last_exception = requests.HTTPError(f"403 Forbidden: {url}")
+                    time.sleep(2)
+                    continue
+                
+                response.raise_for_status()
+                return response.text
+                
+            except requests.Timeout:
+                print(f"  [{self.source_name}] Timeout on attempt {attempt + 1}, retrying...")
+                last_exception = requests.Timeout(f"Timeout: {url}")
+                time.sleep(2)
+                continue
+                
+            except requests.ConnectionError as e:
+                print(f"  [{self.source_name}] Connection error on attempt {attempt + 1}, retrying...")
+                last_exception = e
+                time.sleep(3)
+                continue
+                
+            except requests.HTTPError as e:
+                if attempt < max_retries - 1:
+                    print(f"  [{self.source_name}] HTTP {e.response.status_code} on attempt {attempt + 1}")
+                    time.sleep(2)
+                    last_exception = e
+                    continue
+                raise
+        
+        raise last_exception or requests.RequestException(f"Failed after {max_retries} attempts: {url}")
     
     def parse_html(self, html: str) -> BeautifulSoup:
         """
@@ -254,55 +276,97 @@ class BaseScraper(ABC):
     def extract_chip(title: str) -> Optional[str]:
         """Extract chip name from a listing title."""
         return extract_chip(title)
-    
+
+    @staticmethod
+    def extract_cores(title: str) -> tuple[Optional[int], Optional[int]]:
+        """Extract (cpu_cores, gpu_cores) from a listing title."""
+        return extract_core_counts(title)
+
+    def parse_common_specs(self, title: str) -> dict:
+        """
+        Parse all the common ScrapedListing specs out of a title in one call.
+
+        What: Delegates to the active product type's parse_specs()
+        (see src/product_types/) and returns whatever dict it builds
+        — for the "electronics" type (MacBook Pro / iPhone, the only
+        one that exists today) that's "ram_gb", "storage_gb",
+        "screen_size", "chip", "cpu_cores", "gpu_cores".
+
+        How: Looks up PRODUCT_TYPES[self.config.search.product_type]
+        and calls its parse_specs(title) — no parsing logic lives
+        here directly.
+
+        Why: Every scraper (ebay, swappa, apple_refurb, backmarket,
+        mercari, bestbuy, offerup, newegg, gazelle) was repeating the
+        same spec-extraction block before constructing a
+        ScrapedListing; consolidating it here means there's exactly
+        one place to touch if a new spec (or an entirely new product
+        type, like apparel) ever needs parsing. Scrapers themselves
+        never need to know or care which product type is active.
+
+        Scrapers with special-case logic (e.g. swappa preferring an
+        API-provided chip over the regex-parsed one, mercari falling
+        back to a detail-page fetch for chip) should still call this
+        method for the common fields and then override the relevant
+        key(s) in the returned dict afterward.
+
+        Args:
+            title: The listing title to parse.
+
+        Returns:
+            Whatever dict the active product type's parse_specs()
+            returns.
+        """
+        handler = PRODUCT_TYPES[self.config.search.product_type]
+        return handler.parse_specs(title)
+
     # ── Filter method ──────────────────────────────────────────
     def passes_filters(self, listing: ScrapedListing) -> bool:
         """
         Check if a listing matches our search criteria.
-        
-        This checks:
-          - Chip matches M5 Max
-          - Screen size is 14-inch
-          - RAM is 128GB (primary) or 64GB (fallback)
-          - Price is under absolute_max_usd
-        
+
+        Checks are SKIPPED for any field set to None in config —
+        this lets you loosen requirements without deleting fields.
+
+        How: Universal checks (is this even the right product,
+        location, price floor/ceiling) live here directly. Everything
+        that varies by product category (chip/RAM/storage matching for
+        electronics; whatever a future type needs) is delegated to
+        PRODUCT_TYPES[search.product_type] — see src/product_types/.
+
         Args:
             listing: The parsed listing to check.
-        
+
         Returns:
             True if we should keep this listing, False to skip it.
         """
-        config = self.config.search
-        
-        # Check chip (most important filter)
-        if listing.chip:
-            chip_ok = (
-                config.chip.lower() in listing.chip.lower()
-            )
-            if not chip_ok:
+        s = self.config.search
+        handler = PRODUCT_TYPES[s.product_type]
+
+        # Product-type-specific relevance check (rejects accessories,
+        # off-topic listings, bad-condition red flags).
+        if not handler.is_relevant(listing.title, s, listing.condition):
+            return False
+
+        # Product-type-specific spec matching (chip/RAM/storage/screen
+        # for electronics; whatever fields a future type defines).
+        if not handler.passes_type_filters(listing, s):
+            return False
+
+        # Check location (only if configured) — universal, not
+        # product-type-specific.
+        if s.location and listing.location:
+            if s.location.lower() not in listing.location.lower():
                 return False
-        
-        # Check screen size
-        if listing.screen_size:
-            size_ok = (
-                abs(listing.screen_size - config.screen_size_inches) < 1.0
-            )
-            if not size_ok:
-                return False
-        
-        # Check RAM
-        if listing.ram_gb:
-            ram_ok = (
-                listing.ram_gb == config.ram_gb_primary
-                or listing.ram_gb == config.ram_gb_fallback
-            )
-            if not ram_ok:
-                return False
-        
-        # Check price ceiling
+
+        # Check price range — the floor is product-type-specific
+        # (a real computer costs more than a real phone), the ceiling
+        # is a universal budget cap from config.yaml.
+        if listing.price_usd < handler.min_price_usd(s):
+            return False
         if listing.price_usd > self.config.price.absolute_max_usd:
             return False
-        
+
         return True
     
     # ── Abstract method — must implement in subclass ───────────

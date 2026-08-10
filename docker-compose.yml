@@ -1,0 +1,66 @@
+# ───────────────────────────────────────────────────────────────────
+# docker-compose.yml — local dev runtime (NOT the production runtime)
+# ───────────────────────────────────────────────────────────────────
+# Production is still the GitHub Actions cron workflow
+# (.github/workflows/scrape.yml). This is an additive, alternative
+# way to run a real scrape pass locally, inside a container, with
+# your own config.yaml and .env -- useful for verifying scraper
+# changes work the same way they will in GitHub Actions' Linux
+# runtime without needing a local Python/Playwright install at all.
+#
+# Usage:
+#   cp .env.example .env   # fill in your own values (or leave blank
+#                           # -- ENVIRONMENT=dev means alerts just log
+#                           # instead of posting, see src/environment.py)
+#   docker compose run --rm scraper                # full scrape pass
+#   docker compose run --rm scraper --dry-run      # scrape but never alert
+#   docker compose build                            # rebuild after deps change
+# ───────────────────────────────────────────────────────────────────
+
+services:
+  scraper:
+    build: .
+    image: landonkea-apple-products-scraper:local
+
+    # Chromium needs more shared memory than Docker's 64MB default
+    # `/dev/shm`. Most of the Playwright-driven scrapers
+    # (src/scrapers/base.py's fetch_with_playwright(), used by
+    # bestbuy/offerup/mercari/backmarket/facebook) launch Chromium
+    # without --disable-dev-shm-usage, so a small /dev/shm can crash
+    # their renderer process. (ebay.py's own Playwright launch
+    # already passes --disable-dev-shm-usage, so it isn't affected by
+    # this setting -- its occasional "Page crashed" is eBay's
+    # anti-bot detection, not a container resource issue, and
+    # ebay.py already falls back to a plain HTTP request when that
+    # happens, same as it does outside Docker.)
+    shm_size: "1gb"
+
+    # ENVIRONMENT defaults to "dev" here specifically so a local
+    # compose run can never collide with the production database or
+    # post to the real Discord channel -- see src/environment.py and
+    # the "Environments" section of the README. Override on the CLI
+    # (ENVIRONMENT=staging docker compose run --rm scraper) if you
+    # deliberately want a different scoped database.
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-dev}
+
+    # Secrets (Discord webhook, email creds, etc.) -- see
+    # .env.example for the full list. Optional: dev-environment runs
+    # work fine with no .env at all, they just log instead of
+    # alerting when a webhook isn't set.
+    env_file:
+      - path: .env
+        required: false
+
+    volumes:
+      # Persist the SQLite database (and watchlist.json) across runs
+      # on the host instead of losing it when the container exits.
+      - ./data:/app/data
+      # Let a developer tweak searches/thresholds without rebuilding
+      # the image.
+      - ./config.yaml:/app/config.yaml:ro
+
+    # No `command:` override here on purpose -- the image's
+    # ENTRYPOINT (`python -m main`) already does a full scrape pass.
+    # Append flags at the CLI instead, e.g.:
+    #   docker compose run --rm scraper --dry-run

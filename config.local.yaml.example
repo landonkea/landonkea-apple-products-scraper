@@ -1,0 +1,33 @@
+# ───────────────────────────────────────────────────────────────────
+# LOCAL CONFIG OVERRIDES — example / template
+# ───────────────────────────────────────────────────────────────────
+# Copy this file to config.local.yaml (gitignored — never committed)
+# and fill in your real values. load_config() (src/config.py) deep-
+# merges this on top of config.yaml at runtime: any key you set here
+# replaces the same key in config.yaml, nothing else changes.
+#
+# This exists for settings that aren't secrets (they don't need to be
+# a GitHub Secret / env var) but ARE personally identifying — the
+# clearest example is which Craigslist metro regions to search, since
+# that reveals your approximate location. Keeping this file gitignored
+# means config.yaml can stay committed (and this repo can stay public)
+# without exposing where you live.
+#
+# In CI (GitHub Actions), this file doesn't exist on the runner by
+# default — .github/workflows/scrape.yml and scrape-staging.yml write
+# it themselves from the CRAIGSLIST_REGIONS_YAML GitHub Secret before
+# the scraper runs, so production/staging still search your real
+# regions without them ever touching the repo.
+# ───────────────────────────────────────────────────────────────────
+
+# Example only — replace with the real metro regions you want to
+# search. Region slugs are the last path segment of a Craigslist
+# metro's URL, e.g. https://newyork.craigslist.org -> "newyork".
+# List as many as you want; the scraper aggregates results across
+# all of them (see sites.craigslist's comments in config.yaml).
+sites:
+  craigslist:
+    regions:
+      - "newyork"
+      - "chicago"
+      - "houston"

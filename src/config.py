@@ -11,6 +11,8 @@ import yaml
 from typing import Optional
 from dataclasses import dataclass, field
 
+from environment import get_environment
+
 
 # ── Helper: merge env vars into config ─────────────────────────────
 # Some settings (passwords, webhook URLs) should NEVER be in
@@ -27,6 +29,17 @@ def _load_env_secrets() -> dict:
         "email_to":   os.environ.get("ALERT_EMAIL_TO"),
         "gmail_app_password": os.environ.get("GMAIL_APP_PASSWORD"),
         "discord_webhook_url": os.environ.get("DISCORD_WEBHOOK_URL"),
+        # Optional separate webhook for dev/staging test runs, so a
+        # local run can post somewhere harmless instead of the real
+        # production channel. See notifier.py's _send_discord() for
+        # how this is used alongside is_production().
+        "discord_webhook_url_dev": os.environ.get("DISCORD_WEBHOOK_URL_DEV"),
+        # Facebook Marketplace requires a logged-in session to search at
+        # all (unlike ebay/swappa/etc. which are public). There's no
+        # username/password login flow implemented here — instead, the
+        # site config expects a copied-out browser session cookie value.
+        # See scrapers/facebook.py and docs/marketplace-setup.md.
+        "facebook_session_cookie": os.environ.get("FACEBOOK_SESSION_COOKIE"),
     }
 
 
@@ -37,20 +50,51 @@ def _load_env_secrets() -> dict:
 
 @dataclass
 class SearchConfig:
-    """What hardware we're looking for."""
+    """What we're looking for."""
     product_name: str
-    model_year: str
-    chip: str
+    chip: Optional[str]
     chip_fallback: Optional[str]
-    screen_size_inches: int
-    screen_size_fallback: Optional[int]
-    ram_gb_primary: int
-    ram_gb_fallback: int
+    screen_sizes: list[int]
+    ram_gb_primary: Optional[int]
+    ram_gb_fallback: Optional[int]
     storage_gb_min: Optional[int]
     storage_gb_max: Optional[int]
-    cpu_cores_min: int
-    gpu_cores_min: int
-    buy_it_now_only: bool
+    results_per_size: int
+    location: Optional[str]
+    # ── Product type (see src/product_types/) ──────────────────
+    # Which ProductTypeHandler owns matching/scoring for this search.
+    # Defaults to "electronics" (MacBook Pro / iPhone — the only type
+    # that exists today), so existing config.yaml entries need no
+    # changes to keep working exactly as before. A future category
+    # (e.g. "apparel") sets this to its own registered type name.
+    product_type: str = "electronics"
+    # ── Cellular requirement ───────────────────────────────────
+    # When True, only listings mentioning cellular/5G/LTE are
+    # accepted. Used for iPad Pro WiFi + Cellular models.
+    # Defaults to False so existing config.yaml entries keep working.
+    cellular: bool = False
+    # ── Generation-window fields (set when a search opts into a
+    # `generation_family` — see _expand_generation() below).  Left
+    # at their defaults for manually-configured searches, which
+    # keeps old-style single-chip config.yaml entries working as-is.
+    chip_options: list[str] = field(default_factory=list)
+    chip_generation_map: dict[str, int] = field(default_factory=dict)
+    core_count_reference: dict[int, dict] = field(default_factory=dict)
+    model_keywords: list[str] = field(default_factory=list)
+    # ── Apparel-specific fields (see src/product_types/apparel.py) ──
+    # Only meaningful when product_type: apparel. Left at their
+    # defaults for electronics searches, which keeps every existing
+    # config.yaml entry working unchanged -- same pattern as the
+    # generation-window fields above.
+    sizes: list[float] = field(default_factory=list)
+    # Acceptable US sizes, e.g. [10, 10.5, 11]. Empty means "any size".
+    preferred_brands: list[str] = field(default_factory=list)
+    # Brands that earn a scoring bonus, e.g. ["Red Wing", "Wolverine"].
+    # Does NOT filter -- an unlisted brand is still eligible, just
+    # scores no brand bonus (mirrors how chip_generation_map only
+    # bonuses, never excludes).
+    colors: list[str] = field(default_factory=list)
+    # Acceptable colors, e.g. ["black", "brown"]. Empty means "any color".
 
 
 @dataclass
@@ -60,6 +104,44 @@ class PriceConfig:
     great_deal_usd: dict
     good_deal_usd: dict
     top_deals_count: int
+    # ── Suspicious-price safeguard thresholds ───────────────────
+    # Moved here from hardcoded constants in price_analyzer.py so
+    # they're tunable the same way great_deal_usd/good_deal_usd are,
+    # without a code change. See price_analyzer.py's module docstring
+    # for the full rationale behind these specific values.
+    suspicious_price_ratio: float = 0.5    # under 50% of batch median
+    suspicious_min_sample: int = 3         # min listings for a meaningful median
+    # ── Per-source reliability scoring ──────────────────────────
+    # Optional overrides/additions to price_analyzer.py's
+    # DEFAULT_SOURCE_RELIABILITY_BONUS map (e.g. {"offerup": -5} to
+    # retune just one source without touching every default). Empty
+    # dict (the default) means "use the built-in defaults for every
+    # source" -- see PriceAnalyzer._source_reliability_bonus().
+    source_reliability: dict = field(default_factory=dict)
+
+
+@dataclass
+class PriceDropConfig:
+    """
+    Thresholds for a NEW alert type: an already-seen listing whose
+    price DROPS from what it was last recorded at (as opposed to the
+    existing "great/good deal" alerts, which fire when a listing is
+    first discovered).
+
+    Mirrors PriceConfig's style (plain numeric thresholds, no nested
+    logic) but requires BOTH a minimum percent AND minimum dollar
+    drop before alerting — a percent-only rule would fire on tiny
+    drops for expensive items (e.g. 5% of $8,000 = $400, fine) while
+    a dollar-only rule would fire on trivial drops for cheap items
+    (e.g. $50 off a $150,000... not applicable here, but the same
+    logic protects against a $50 drop on a $600 listing, which is a
+    real 8% swing worth seeing, vs. a $50 drop on a $7,000 listing,
+    which is noise). Requiring both keeps alerts meaningful across
+    the whole price range these scrapers see.
+    """
+    enabled: bool
+    min_drop_percent: float
+    min_drop_usd: float
 
 
 @dataclass
@@ -68,6 +150,26 @@ class SiteConfig:
     enabled: bool
     search_url: str = ""
     base_url: str = ""
+    # Which product_type values this site can ever return results for.
+    # None (the default) means "applies to every product type" — the
+    # right default for general marketplaces (eBay, Swappa, Mercari,
+    # OfferUp, BackMarket) that build queries from product_name alone.
+    # Storefronts that only ever carry electronics (Apple Refurb,
+    # BestBuy, Newegg, Gazelle) set this explicitly in config.yaml so
+    # a future non-electronics search skips them instead of wasting a
+    # request and returning zero every time.
+    applicable_product_types: Optional[list[str]] = None
+    # Craigslist-specific: the list of metro region slugs to search
+    # (e.g. ["phoenix", "tucson", "losangeles"]) — Craigslist is
+    # organized by city/metro, not by state, so a single state maps to
+    # multiple region slugs and this needs to be a list, not a single
+    # string, to "cast a wide net" across several states in one run.
+    # None/empty (the default) means the scraper falls back to its own
+    # DEFAULT_REGIONS (just Phoenix). Unused by every other site — see
+    # scrapers/craigslist.py's module docstring for why this needs to
+    # be config-driven rather than hardcoded, and for which region
+    # slugs were verified live.
+    regions: Optional[list[str]] = None
 
 
 @dataclass
@@ -80,6 +182,9 @@ class SitesConfig:
     mercari: SiteConfig
     bestbuy: SiteConfig
     offerup: SiteConfig
+    newegg: SiteConfig
+    gazelle: SiteConfig
+    craigslist: SiteConfig
     facebook: SiteConfig
 
 
@@ -110,6 +215,75 @@ class DatabaseConfig:
     url: str
 
 
+# ── Helper: keep dev/staging runs off the production database file ─
+# WHY: config.yaml hardcodes one database URL (the production one,
+# e.g. "sqlite:///data/listings.db") which GitHub Actions reads,
+# writes to, and commits back to the repo on every scheduled run.
+# If a local dev/staging run used that exact same URL, it would open
+# the *same* SQLite file — and SQLite doesn't handle concurrent
+# writers from separate processes gracefully. This exact problem
+# happened in practice: a stray local process held the production DB
+# file open, and the next GitHub Actions run failed with a "readonly
+# database" error because the file was locked.
+#
+# The fix: whenever we're not in production, we rewrite the database
+# URL to point at a sibling file (".dev.db" / ".staging.db" instead
+# of ".db") so local test runs get their own on-disk database that
+# can never collide with the one GitHub Actions maintains.
+def _environment_scoped_db_url(url: str, environment: str) -> str:
+    """
+    Return a database URL scoped to the given environment.
+
+    WHAT:
+        In production, returns `url` unchanged. In dev or staging,
+        inserts a ".dev" or ".staging" suffix before the file
+        extension, so each environment gets its own database file
+        on disk instead of sharing the production one.
+
+    HOW:
+        Splits `url` at the last "." (the extension separator) and
+        rebuilds it with the environment name spliced in, e.g.:
+            "sqlite:///data/listings.db" + "dev"
+                -> "sqlite:///data/listings.dev.db"
+        If `url` has no extension (no "." after the last "/"), the
+        suffix is simply appended, so this never raises on unusual
+        URLs — it degrades to "just add a suffix."
+
+    WHY (see module-level comment above _environment_scoped_db_url):
+        Prevents local/staging runs from ever opening the exact same
+        SQLite file that the production GitHub Actions workflow
+        reads and writes, which previously caused a "readonly
+        database" error when a stray local process held the real
+        production file locked.
+
+    Args:
+        url: The raw database URL from config.yaml (production URL).
+        environment: One of "dev", "staging", "production" — usually
+            the return value of environment.get_environment().
+
+    Returns:
+        The (possibly suffixed) database URL to actually use.
+    """
+    if environment == "production":
+        return url
+
+    # Split off everything after the last "/" so a "." in a directory
+    # name (unlikely, but be safe) doesn't get treated as the
+    # extension separator.
+    last_slash = url.rfind("/")
+    dir_part = url[: last_slash + 1]
+    file_part = url[last_slash + 1 :]
+
+    if "." in file_part:
+        stem, _, ext = file_part.rpartition(".")
+        scoped_file_part = f"{stem}.{environment}.{ext}"
+    else:
+        # No extension to split on — just append the suffix.
+        scoped_file_part = f"{file_part}.{environment}"
+
+    return f"{dir_part}{scoped_file_part}"
+
+
 @dataclass
 class Config:
     """
@@ -117,16 +291,42 @@ class Config:
     
     Usage:
         config = load_config()
-        print(config.search.chip)           # "M5 Max"
-        print(config.price.absolute_max_usd)  # 8000
+        for search in config.searches:
+            print(search.chip)
+        print(config.price.absolute_max_usd)
     """
-    search: SearchConfig
+    searches: list[SearchConfig]
     price: PriceConfig
     sites: SitesConfig
     alerts: AlertsConfig
     database: DatabaseConfig
     schedule: dict
+    price_drop: PriceDropConfig
     secrets: dict = field(default_factory=_load_env_secrets)
+    # Which environment this run is executing in — "dev", "staging",
+    # or "production". Defaulted via get_environment() (which itself
+    # defaults to "production" when ENVIRONMENT is unset) so existing
+    # callers that construct Config directly, or call load_config()
+    # without touching this field, keep working unchanged.
+    environment: str = field(default_factory=get_environment)
+    # The SearchConfig currently being processed. main.py's per-search
+    # loop sets this (`config.search = search_config`) before running
+    # any scraper — every scraper and BaseScraper.passes_filters()/
+    # parse_common_specs() reads config.search rather than taking a
+    # SearchConfig parameter directly. Declared here (defaulting to
+    # None) purely so that runtime contract is visible in the type
+    # system instead of being an undeclared attribute nothing outside
+    # main.py's loop could see was expected to exist.
+    search: Optional["SearchConfig"] = None
+    # Set by main()'s CLI parsing when --dry-run or --no-alert is
+    # passed. When True, every notification send (email + Discord,
+    # both "new deal" and "price drop" alerts) is skipped -- the run
+    # still scrapes, saves to the database, and prints its normal
+    # summary, so it's safe to use for local testing against the real
+    # config without spamming a live Discord channel. Defaults to
+    # False so all existing callers (including load_config()) keep
+    # sending alerts exactly as before.
+    dry_run: bool = False
 
 
 # ── Helper: build a SiteConfig from raw YAML ──────────────────────
@@ -136,51 +336,185 @@ def _parse_site(raw: dict) -> SiteConfig:
         enabled=raw.get("enabled", False),
         search_url=raw.get("search_url", ""),
         base_url=raw.get("base_url", ""),
+        applicable_product_types=raw.get("applicable_product_types"),
+        regions=raw.get("regions"),
     )
 
 
-def load_config(path: str = "config.yaml") -> Config:
+# ── Helper: expand a `generation_family` into concrete search criteria ──
+# This is what makes searches.yaml entries future-proof.  Instead of
+# hardcoding "M5 Max" / "iPhone 17 Pro Max" in config.yaml, a search
+# entry can reference a family under `generations:` and get a rolling
+# window of the last N flagship generations — bump one number
+# (`current_gen`) per year, no other edits or code changes needed.
+def _expand_generation(search_dict: dict, generations_raw: dict) -> dict:
+    """
+    If `search_dict` has a `generation_family` key, expand it into
+    chip_options / chip_generation_map / core_count_reference (for
+    chip-based products like MacBook Pro) or model_keywords (for
+    model-number-based products like iPhone).
+
+    Returns a shallow copy of search_dict with the expansion fields
+    merged in.  If no `generation_family` is set, returns search_dict
+    unchanged (manual single-chip config still works as before).
+    """
+    family_name = search_dict.get("generation_family")
+    if not family_name:
+        return search_dict
+
+    family = generations_raw.get(family_name)
+    if not family:
+        raise ValueError(
+            f"searches entry references generation_family "
+            f"'{family_name}' but no such family exists under "
+            f"'generations:' in config.yaml"
+        )
+
+    current_gen = family["current_gen"]
+    lookback = family.get("lookback", 3)
+    tier = family["tier"]
+    generation_numbers = [current_gen - offset for offset in range(lookback)]
+
+    expanded = dict(search_dict)
+
+    if tier in ("Pro", "Max", "Ultra") or tier == "":
+        # Chip-based family (e.g. Mac "Max" chips → M5 Max, M4 Max, M3 Max)
+        # or base M chips (e.g. iPad Pro → M5, M4, M3)
+        if tier:
+            chip_options = [f"M{n} {tier}" for n in generation_numbers]
+        else:
+            # Empty tier means base M chips (M5, M4, M3)
+            chip_options = [f"M{n}" for n in generation_numbers]
+        expanded["chip_options"] = chip_options
+        expanded["chip"] = chip_options[0]  # newest, for code that reads .chip directly (e.g. offerup.py)
+        expanded["chip_generation_map"] = {
+            chip: n for chip, n in zip(chip_options, generation_numbers)
+        }
+        raw_core_counts = family.get("core_counts", {})
+        expanded["core_count_reference"] = {
+            n: raw_core_counts[n] for n in generation_numbers if n in raw_core_counts
+        }
+    else:
+        # Model-number-based family (e.g. "iPhone N Pro Max")
+        product_prefix = search_dict["product_name"].split(" ")[0]  # e.g. "iPhone"
+        expanded["model_keywords"] = [
+            f"{product_prefix} {n} {tier}" for n in generation_numbers
+        ]
+
+    return expanded
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """
+    Recursively merge `override` onto `base`, returning a new dict.
+
+    Dicts merge key-by-key (recursing into nested dicts). Any other
+    value in `override` (including lists) replaces the base value
+    entirely — e.g. a `regions` list in the override doesn't get
+    appended to config.yaml's list, it replaces it outright. This
+    keeps the semantics simple and predictable: "whatever this key
+    is in the local override, that's what it is."
+    """
+    merged = dict(base)
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config(path: str = "config.yaml", local_path: str = "config.local.yaml") -> Config:
     """
     Read config.yaml and return a typed Config object.
-    
+
     Args:
         path: Path to the YAML config file (default: "config.yaml").
-    
+        local_path: Path to an optional local override file (default:
+            "config.local.yaml"). If present, its contents are deep-
+            merged on top of `path`'s — see _deep_merge(). This exists
+            so personally-identifying-but-not-secret settings (e.g.
+            which real Craigslist metro regions to search) don't have
+            to live in the tracked, possibly-public config.yaml. This
+            file is gitignored; see config.local.yaml.example for the
+            format. In CI, .github/workflows/scrape*.yml generate this
+            file from a GitHub Secret before the scraper runs (see
+            those workflows' "Write local config overrides" step) —
+            it never touches the repo.
+
     Returns:
         A Config dataclass with all settings.
     """
     with open(path, "r") as f:
         raw = yaml.safe_load(f)
 
+    if os.path.exists(local_path):
+        with open(local_path, "r") as f:
+            local_raw = yaml.safe_load(f) or {}
+        raw = _deep_merge(raw, local_raw)
+
+    # Determine environment once, up front, so it can be used both to
+    # scope the database URL below and to populate Config.environment.
+    environment = get_environment()
+
     # Grab each section
-    search_raw = raw["search"]
-    price_raw  = raw["price"]
-    sites_raw  = raw["sites"]
-    alerts_raw = raw["alerts"]
-    db_raw     = raw["database"]
+    searches_raw    = raw["searches"]
+    price_raw       = raw["price"]
+    sites_raw       = raw["sites"]
+    alerts_raw      = raw["alerts"]
+    db_raw          = raw["database"]
+    generations_raw = raw.get("generations", {})
+    # .get() with defaults (not raw["price_drop"]) so any config.yaml
+    # written before this feature existed keeps loading unchanged —
+    # price-drop alerts are simply enabled with sane defaults.
+    price_drop_raw  = raw.get("price_drop", {})
+
+    # Parse each search
+    searches = []
+    for s in searches_raw:
+        s = _expand_generation(s, generations_raw)
+        searches.append(SearchConfig(
+            product_name=s["product_name"],
+            chip=s.get("chip"),
+            chip_fallback=s.get("chip_fallback"),
+            screen_sizes=s.get("screen_sizes", []),
+            ram_gb_primary=s.get("ram_gb_primary"),
+            ram_gb_fallback=s.get("ram_gb_fallback"),
+            storage_gb_min=s.get("storage_gb_min"),
+            storage_gb_max=s.get("storage_gb_max"),
+            results_per_size=s.get("results_per_size", 30),
+            location=s.get("location"),
+            product_type=s.get("product_type", "electronics"),
+            chip_options=s.get("chip_options", []),
+            chip_generation_map=s.get("chip_generation_map", {}),
+            core_count_reference=s.get("core_count_reference", {}),
+            model_keywords=s.get("model_keywords", []),
+            sizes=s.get("sizes", []),
+            preferred_brands=s.get("preferred_brands", []),
+            colors=s.get("colors", []),
+            cellular=s.get("cellular", False),
+        ))
+        if s.get("generation_family"):
+            family_name = s["generation_family"]
+            if "chip_options" in s:
+                print(f"  [Config] {family_name} generations: {', '.join(s['chip_options'])}")
+            elif "model_keywords" in s:
+                print(f"  [Config] {family_name} generations: {', '.join(s['model_keywords'])}")
 
     # Build typed config
     config = Config(
-        search=SearchConfig(
-            product_name=search_raw["product_name"],
-            model_year=search_raw["model_year"],
-            chip=search_raw["chip"],
-            chip_fallback=search_raw.get("chip_fallback"),
-            screen_size_inches=search_raw["screen_size_inches"],
-            screen_size_fallback=search_raw.get("screen_size_fallback"),
-            ram_gb_primary=search_raw["ram_gb_primary"],
-            ram_gb_fallback=search_raw["ram_gb_fallback"],
-            storage_gb_min=search_raw.get("storage_gb_min"),
-            storage_gb_max=search_raw.get("storage_gb_max"),
-            cpu_cores_min=search_raw["cpu_cores_min"],
-            gpu_cores_min=search_raw["gpu_cores_min"],
-            buy_it_now_only=search_raw["buy_it_now_only"],
-        ),
+        searches=searches,
         price=PriceConfig(
             absolute_max_usd=price_raw["absolute_max_usd"],
             great_deal_usd=price_raw["great_deal_usd"],
             good_deal_usd=price_raw["good_deal_usd"],
             top_deals_count=price_raw["top_deals_count"],
+            # .get() with defaults so any config.yaml written before
+            # these existed keeps loading unchanged (same pattern as
+            # price_drop_raw above).
+            suspicious_price_ratio=price_raw.get("suspicious_price_ratio", 0.5),
+            suspicious_min_sample=price_raw.get("suspicious_min_sample", 3),
+            source_reliability=price_raw.get("source_reliability", {}),
         ),
         sites=SitesConfig(
             ebay=_parse_site(sites_raw["ebay"]),
@@ -190,6 +524,9 @@ def load_config(path: str = "config.yaml") -> Config:
             mercari=_parse_site(sites_raw["mercari"]),
             bestbuy=_parse_site(sites_raw["bestbuy"]),
             offerup=_parse_site(sites_raw["offerup"]),
+            newegg=_parse_site(sites_raw["newegg"]),
+            gazelle=_parse_site(sites_raw["gazelle"]),
+            craigslist=_parse_site(sites_raw["craigslist"]),
             facebook=_parse_site(sites_raw["facebook"]),
         ),
         alerts=AlertsConfig(
@@ -202,9 +539,17 @@ def load_config(path: str = "config.yaml") -> Config:
                 enabled=alerts_raw["discord"]["enabled"],
             ),
         ),
-        database=DatabaseConfig(url=db_raw["url"]),
+        database=DatabaseConfig(
+            url=_environment_scoped_db_url(db_raw["url"], environment)
+        ),
         schedule=raw["schedule"],
+        price_drop=PriceDropConfig(
+            enabled=price_drop_raw.get("enabled", True),
+            min_drop_percent=price_drop_raw.get("min_drop_percent", 5),
+            min_drop_usd=price_drop_raw.get("min_drop_usd", 50),
+        ),
         secrets=_load_env_secrets(),
+        environment=environment,
     )
 
     return config
