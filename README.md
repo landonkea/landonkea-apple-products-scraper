@@ -211,6 +211,8 @@ What this required beyond the handler itself:
 
 See `.env.example` for the full list with descriptions. Locally these go in a `.env` file (gitignored); in GitHub Actions they're environment-scoped repository secrets, never committed.
 
+Three narrower templates break that same list down per environment, `.env.dev.example`, `.env.staging.example`, `.env.prod.example`, showing which variables each one actually reads (e.g. production never touches `DISCORD_WEBHOOK_URL_DEV`, dev never touches the real `DISCORD_WEBHOOK_URL`) instead of the one combined list `.env.example` gives you. Useful as reference or when setting up repository secrets for the first time; for a normal local `.env`, `.env.dev.example` is the one to copy.
+
 ## Scrapers
 
 | Scraper | Site | Strategy |
