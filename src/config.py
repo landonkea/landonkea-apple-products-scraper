@@ -34,6 +34,14 @@ def _load_env_secrets() -> dict:
         # production channel. See notifier.py's _send_discord() for
         # how this is used alongside is_production().
         "discord_webhook_url_dev": os.environ.get("DISCORD_WEBHOOK_URL_DEV"),
+        # Optional per-search webhook (see SearchConfig.discord_webhook_secret_key
+        # and notifier.py's webhook resolution) -- lets one search
+        # (e.g. the ebike search) post to a different Discord channel
+        # than the default electronics/apparel/vision_pro searches,
+        # without touching how those existing searches resolve their
+        # webhook at all.
+        "discord_webhook_url_ebike": os.environ.get("DISCORD_WEBHOOK_URL_EBIKE"),
+        "discord_webhook_url_ebike_dev": os.environ.get("DISCORD_WEBHOOK_URL_EBIKE_DEV"),
         # Facebook Marketplace requires a logged-in session to search at
         # all (unlike ebay/swappa/etc. which are public). There's no
         # username/password login flow implemented here, instead, the
@@ -95,6 +103,37 @@ class SearchConfig:
     # bonuses, never excludes).
     colors: list[str] = field(default_factory=list)
     # Acceptable colors, e.g. ["black", "brown"]. Empty means "any color".
+    # ── E-bike-specific fields (see src/product_types/ebike.py) ──────
+    # Only meaningful when product_type: ebike. Left at defaults for
+    # every other search, same "doesn't break existing entries"
+    # pattern as the apparel fields above. preferred_brands (above) is
+    # reused for e-bike brand scoring rather than duplicated -- it's
+    # already a generic "brands worth a bonus" list.
+    wheel_sizes_in: list[float] = field(default_factory=list)
+    # Acceptable wheel sizes in inches, e.g. [16, 20, 24]. Currently
+    # informational/reserved for a future hard filter -- today wheel
+    # size is scored as a bonus (see ebike.py's score_bonuses()), not
+    # filtered, per that module's HARD FILTERS design note.
+    min_weight_capacity_lb: Optional[int] = None
+    # Currently informational -- ebike.py's passes_type_filters()
+    # hard-codes its own MIN_ACCEPTABLE_WEIGHT_CAPACITY_LB (330lb, the
+    # rider brief's explicit cutoff) rather than reading this field,
+    # so changing this value alone does not change filtering behavior
+    # yet. Kept as a typed config field (rather than omitted entirely)
+    # so config.yaml's intent is visible and this can be wired to the
+    # real threshold later without a schema change.
+    # ── Per-search Discord webhook routing (see notifier.py) ─────────
+    discord_webhook_secret_key: Optional[str] = None
+    # When None (every existing electronics/apparel/vision_pro entry),
+    # Discord alerts for this search resolve the webhook exactly as
+    # before: config.secrets["discord_webhook_url"] /
+    # ["discord_webhook_url_dev"]. When set to a secrets dict key
+    # (e.g. "discord_webhook_url_ebike"), alerts for this search
+    # resolve that key instead (with "_dev" appended for the dev/
+    # staging webhook), letting one search post to a different
+    # Discord channel than the rest without any change to how other
+    # searches resolve their webhook. Not ebike-specific machinery,
+    # just the config knob ebike's config.yaml entry happens to use.
 
 
 @dataclass
@@ -186,6 +225,7 @@ class SitesConfig:
     gazelle: SiteConfig
     craigslist: SiteConfig
     facebook: SiteConfig
+    pinkbike: SiteConfig
 
 
 @dataclass
@@ -493,6 +533,9 @@ def load_config(path: str = "config.yaml", local_path: str = "config.local.yaml"
             preferred_brands=s.get("preferred_brands", []),
             colors=s.get("colors", []),
             cellular=s.get("cellular", False),
+            wheel_sizes_in=s.get("wheel_sizes_in", []),
+            min_weight_capacity_lb=s.get("min_weight_capacity_lb"),
+            discord_webhook_secret_key=s.get("discord_webhook_secret_key"),
         ))
         if s.get("generation_family"):
             family_name = s["generation_family"]
@@ -528,6 +571,7 @@ def load_config(path: str = "config.yaml", local_path: str = "config.local.yaml"
             gazelle=_parse_site(sites_raw["gazelle"]),
             craigslist=_parse_site(sites_raw["craigslist"]),
             facebook=_parse_site(sites_raw["facebook"]),
+            pinkbike=_parse_site(sites_raw["pinkbike"]),
         ),
         alerts=AlertsConfig(
             email=EmailAlertConfig(

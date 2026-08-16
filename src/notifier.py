@@ -957,6 +957,62 @@ class Notifier:
         # Clean up old messages
         self._cleanup_old_messages(webhook_url)
 
+    def _resolve_discord_webhook_url(self, action_description: str) -> Optional[str]:
+        """
+        Resolve which Discord webhook URL a per-search alert (new-deal
+        or price-drop) should post to, honoring per-search webhook
+        routing.
+
+        WHAT: Both _send_discord() and _send_discord_price_drop() need
+        the exact same webhook-resolution logic, only the search
+        (electronics/apparel/vision_pro vs. ebike, etc.) can differ
+        between calls. Previously this was hardcoded to the literal
+        secrets keys "discord_webhook_url"/"discord_webhook_url_dev"
+        in both methods; now it reads
+        self.config.search.discord_webhook_secret_key (see
+        SearchConfig in config.py) and falls back to that same
+        default when unset, so every existing search (which never
+        sets this field) resolves its webhook exactly as before.
+
+        HOW: Builds the secrets-dict key from
+        search.discord_webhook_secret_key (default
+        "discord_webhook_url"), appending "_dev" for the non-
+        production variant, then applies the same is_production()
+        gate every alert type here has always used: production reads
+        the real key directly; dev/staging reads the "_dev" key and,
+        if that's unset, logs and returns None rather than ever
+        posting to the real channel from a local test run.
+
+        Args:
+            action_description: Short phrase describing what would be
+                sent, used only in the "would send X but webhook not
+                configured" log line (e.g. "alert", "price-drop alert").
+
+        Returns:
+            The resolved webhook URL, or None if it's not configured
+            for this environment/search (the caller should skip
+            sending and treat None as "nothing to do", not an error).
+        """
+        base_key = self.config.search.discord_webhook_secret_key or "discord_webhook_url"
+
+        if is_production():
+            webhook_url = self.secrets.get(base_key)
+        else:
+            dev_webhook_url = self.secrets.get(f"{base_key}_dev")
+            if not dev_webhook_url:
+                print(f"[Notifier] Non-production environment, would "
+                      f"send {action_description} to Discord but "
+                      f"{base_key.upper()}_DEV not set, skipping.")
+                return None
+            webhook_url = dev_webhook_url
+
+        if not webhook_url:
+            print(f"  [Notifier] Discord not configured, set "
+                  f"{base_key.upper()} env var.")
+            return None
+
+        return webhook_url
+
     def _send_discord(self, top_deals: list[Listing], stats: dict):
         """
         Post a deal alert to a Discord channel via webhook.
@@ -964,38 +1020,22 @@ class Notifier:
         How to create a Discord webhook:
           1. Open Discord → Server Settings → Integrations
           2. Click "Create Webhook"
-          3. Name it "Apple Product Scraper Alerts"
+          3. Name it "Apple Product Scraper Alerts" (or, for a search
+             with its own discord_webhook_secret_key set, e.g. the
+             ebike search's "DISCORD_WEBHOOK_URL_EBIKE", name it
+             something specific to that search/channel instead)
           4. Copy the webhook URL
-          5. Set it as DISCORD_WEBHOOK_URL in GitHub Secrets
+          5. Set it as DISCORD_WEBHOOK_URL in GitHub Secrets (or
+             whatever secret name the active search's
+             discord_webhook_secret_key points at, see
+             _resolve_discord_webhook_url()'s docstring)
 
         Args:
             top_deals: The best deals.
             stats: Price statistics.
         """
-        # ── Environment gate ─────────────────────────────────────
-        # WHY: In production (the real GitHub Actions run), we send
-        # to the real DISCORD_WEBHOOK_URL exactly as always, this
-        # branch is unchanged from before environment-awareness was
-        # added. In dev/staging (a local test run), we must NOT post
-        # to that same real, live channel. If the operator has set
-        # up a separate DISCORD_WEBHOOK_URL_DEV (e.g. pointing at a
-        # private test server/channel), we use that instead; if not,
-        # we skip sending entirely and just log what would have
-        # happened, so local testing never spams the real channel.
-        if is_production():
-            webhook_url = self.secrets.get("discord_webhook_url")
-        else:
-            dev_webhook_url = self.secrets.get("discord_webhook_url_dev")
-            if not dev_webhook_url:
-                print("[Notifier] Non-production environment, would "
-                      "send to Discord but DISCORD_WEBHOOK_URL_DEV not "
-                      "set, skipping.")
-                return
-            webhook_url = dev_webhook_url
-
+        webhook_url = self._resolve_discord_webhook_url("an alert")
         if not webhook_url:
-            print("  [Notifier] Discord not configured, set "
-                  "DISCORD_WEBHOOK_URL env var.")
             return
 
         # ── Build summary strings ───────────────────────────────
@@ -1028,23 +1068,10 @@ class Notifier:
         Args:
             price_drops: (listing, old_price) pairs.
         """
-        # ── Environment gate, identical reasoning to _send_discord()
-        # above: never post price-drop alerts to the real production
-        # channel from a local/staging test run.
-        if is_production():
-            webhook_url = self.secrets.get("discord_webhook_url")
-        else:
-            dev_webhook_url = self.secrets.get("discord_webhook_url_dev")
-            if not dev_webhook_url:
-                print("[Notifier] Non-production environment, would "
-                      "send price-drop alert to Discord but "
-                      "DISCORD_WEBHOOK_URL_DEV not set, skipping.")
-                return
-            webhook_url = dev_webhook_url
-
+        # Same per-search webhook routing as _send_discord(), see
+        # _resolve_discord_webhook_url()'s docstring.
+        webhook_url = self._resolve_discord_webhook_url("a price-drop alert")
         if not webhook_url:
-            print("  [Notifier] Discord not configured, set "
-                  "DISCORD_WEBHOOK_URL env var.")
             return
 
         messages = self._build_price_drop_discord_messages(price_drops)

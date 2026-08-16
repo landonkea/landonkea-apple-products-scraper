@@ -87,6 +87,10 @@ sites:
   facebook:
     enabled: false
     search_url: ""
+  pinkbike:
+    enabled: true
+    applicable_product_types: ["ebike"]
+    search_url: "https://www.pinkbike.com/buysell/list/?category=63"
 
 # ── Alert channels ──────────────────────────────────────────────
 alerts:
@@ -125,7 +129,13 @@ def test_load_config():
 
     try:
         # Parse the YAML using the project's own config loader.
-        config = load_config(tmp_path)
+        # Isolate from any real config.local.yaml the developer running
+        # these tests might have on disk (e.g. for their own real
+        # Craigslist region list, see config.local.yaml.example) --
+        # these tests assert exact values from SAMPLE_CONFIG alone, an
+        # ambient local override file deep-merging on top would make
+        # them depend on machine-specific state.
+        config = load_config(tmp_path, local_path="nonexistent_config.local.yaml")
 
         # ── Verify SearchConfig values ──────────────────────────
         # The config.py defines `searches` as a list, so we check the first entry.
@@ -195,7 +205,13 @@ def test_secrets_loading():
         tmp_path = f.name
 
     try:
-        config = load_config(tmp_path)
+        # Isolate from any real config.local.yaml the developer running
+        # these tests might have on disk (e.g. for their own real
+        # Craigslist region list, see config.local.yaml.example) --
+        # these tests assert exact values from SAMPLE_CONFIG alone, an
+        # ambient local override file deep-merging on top would make
+        # them depend on machine-specific state.
+        config = load_config(tmp_path, local_path="nonexistent_config.local.yaml")
         # Verify secrets loaded from env vars.
         assert config.secrets["email_from"] == "test@example.com"
         assert config.secrets["discord_webhook_url"] == \
@@ -242,7 +258,13 @@ def test_load_config_populates_environment_field():
 
     os.environ["ENVIRONMENT"] = "dev"
     try:
-        config = load_config(tmp_path)
+        # Isolate from any real config.local.yaml the developer running
+        # these tests might have on disk (e.g. for their own real
+        # Craigslist region list, see config.local.yaml.example) --
+        # these tests assert exact values from SAMPLE_CONFIG alone, an
+        # ambient local override file deep-merging on top would make
+        # them depend on machine-specific state.
+        config = load_config(tmp_path, local_path="nonexistent_config.local.yaml")
         assert config.environment == "dev"
         assert config.database.url == \
             "sqlite:///tmp/test_listings.dev.db"
@@ -263,7 +285,13 @@ def test_load_config_defaults_to_production_environment():
 
     os.environ.pop("ENVIRONMENT", None)
     try:
-        config = load_config(tmp_path)
+        # Isolate from any real config.local.yaml the developer running
+        # these tests might have on disk (e.g. for their own real
+        # Craigslist region list, see config.local.yaml.example) --
+        # these tests assert exact values from SAMPLE_CONFIG alone, an
+        # ambient local override file deep-merging on top would make
+        # them depend on machine-specific state.
+        config = load_config(tmp_path, local_path="nonexistent_config.local.yaml")
         assert config.environment == "production"
         assert config.database.url == "sqlite:///tmp/test_listings.db"
     finally:
@@ -284,7 +312,13 @@ def test_suspicious_price_thresholds_default_when_absent():
         tmp_path = f.name
 
     try:
-        config = load_config(tmp_path)
+        # Isolate from any real config.local.yaml the developer running
+        # these tests might have on disk (e.g. for their own real
+        # Craigslist region list, see config.local.yaml.example) --
+        # these tests assert exact values from SAMPLE_CONFIG alone, an
+        # ambient local override file deep-merging on top would make
+        # them depend on machine-specific state.
+        config = load_config(tmp_path, local_path="nonexistent_config.local.yaml")
         assert config.price.suspicious_price_ratio == 0.5
         assert config.price.suspicious_min_sample == 3
     finally:
@@ -309,7 +343,13 @@ def test_suspicious_price_thresholds_are_config_driven():
         tmp_path = f.name
 
     try:
-        config = load_config(tmp_path)
+        # Isolate from any real config.local.yaml the developer running
+        # these tests might have on disk (e.g. for their own real
+        # Craigslist region list, see config.local.yaml.example) --
+        # these tests assert exact values from SAMPLE_CONFIG alone, an
+        # ambient local override file deep-merging on top would make
+        # them depend on machine-specific state.
+        config = load_config(tmp_path, local_path="nonexistent_config.local.yaml")
         assert config.price.suspicious_price_ratio == 0.35
         assert config.price.suspicious_min_sample == 5
     finally:

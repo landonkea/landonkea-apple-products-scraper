@@ -112,10 +112,61 @@ class Listing(Base):
     # US size, e.g. 10.5.
 
     brand = Column(String(100), nullable=True)
-    # e.g. "Red Wing", "Wolverine".
+    # e.g. "Red Wing", "Wolverine" (apparel) / "Lectric", "Aventon" (ebike).
 
     color = Column(String(50), nullable=True)
     # e.g. "black", "brown".
+
+    # ── E-bike-specific specs (see src/product_types/ebike.py) ──────
+    # Always NULL for electronics/apparel listings -- only populated
+    # when the active search's product_type is "ebike". Same pattern
+    # as size/brand/color above (brand is reused, not duplicated).
+    wheel_size_in = Column(Float, nullable=True)
+    # Wheel diameter in inches, e.g. 20.0.
+
+    fat_tire = Column(Boolean, nullable=True)
+    # True if the title indicates a ~3-4in fat tire.
+
+    step_through = Column(Boolean, nullable=True)
+    # Title-keyword signal only, NOT a verified frame-geometry
+    # confirmation -- see ebike.py's module docstring STEP-THROUGH
+    # CAVEAT before trusting this field for anything more than a
+    # "worth a closer look" signal.
+
+    folding = Column(Boolean, nullable=True)
+    # True if the title indicates a folding frame.
+
+    battery_voltage = Column(Integer, nullable=True)
+    # e.g. 48.
+
+    battery_ah = Column(Float, nullable=True)
+    # Battery amp-hours, e.g. 20.0.
+
+    battery_wh = Column(Float, nullable=True)
+    # Battery watt-hours (voltage * ah), when both are known.
+
+    motor_watts_nominal = Column(Integer, nullable=True)
+    # Continuous/nominal motor wattage -- see ebike.py's module
+    # docstring for why this is never conflated with peak wattage.
+
+    motor_watts_peak = Column(Integer, nullable=True)
+    # Peak motor wattage, only ever set when the title explicitly
+    # says "peak"/"max" next to the figure.
+
+    weight_capacity_lb = Column(Integer, nullable=True)
+    # Manufacturer-stated rider/load capacity, only when the title
+    # states one -- see ebike.py's passes_type_filters() for the hard
+    # reject threshold this backs.
+
+    brake_type = Column(String(20), nullable=True)
+    # "hydraulic" / "mechanical" / "rim".
+
+    suspension = Column(Boolean, nullable=True)
+    # True if the title indicates front suspension.
+
+    ul_certified = Column(Boolean, nullable=True)
+    # True if the title claims UL 2849 (e-bike) or UL 2271 (battery)
+    # certification.
 
     # ── Deal scoring (computed) ───────────────────────────────
     deal_score = Column(Float, nullable=True)

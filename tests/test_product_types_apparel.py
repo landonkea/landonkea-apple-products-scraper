@@ -256,6 +256,12 @@ def _make_full_config(product_type: str) -> Config:
         ebay=general, swappa=general, backmarket=general, mercari=general,
         offerup=general, craigslist=general, facebook=general,
         apple_refurb=apple_only, bestbuy=apple_only, newegg=apple_only, gazelle=apple_only,
+        # New field, added alongside the ebike product type (see
+        # test_product_types_ebike.py) -- restricted to "ebike" the
+        # same way apple_only sites are restricted to "electronics",
+        # so it's correctly excluded for this apparel-search config
+        # without changing any of this test's existing assertions.
+        pinkbike=SiteConfig(enabled=True, applicable_product_types=["ebike"]),
     )
     search = _make_search_config(product_type=product_type)
     return Config(

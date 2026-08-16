@@ -146,6 +146,55 @@ searches:
   #   location: ~
   #   results_per_size: 20
 
+  # ── Folding step-through commuter e-bike (LIVE) ──────────────────
+  # See src/product_types/ebike.py's module docstring for the full
+  # rider brief this is scored against: a 5'2", ~290lb rider's daily
+  # 15-mile-each-way Phoenix, AZ commute, charging at work. Alerts for
+  # this search go to a SEPARATE Discord channel from the electronics
+  # searches above, see discord_webhook_secret_key below and
+  # DISCORD_WEBHOOK_URL_EBIKE in .env.example / README's Environment
+  # Variables section.
+  - product_name: "folding step through electric bike"
+    product_type: ebike
+    screen_sizes: []
+    ram_gb_primary: ~
+    ram_gb_fallback: ~
+    storage_gb_min: ~
+    storage_gb_max: ~
+    location: "Phoenix, AZ"
+    results_per_size: 40
+    wheel_sizes_in: [16, 20, 24]
+    min_weight_capacity_lb: 330
+    preferred_brands:
+      - "Lectric"
+      - "Tern"
+      - "Brompton"
+      - "Rad Power"
+      - "Aventon"
+      - "Ride1Up"
+      - "Blix"
+      - "Velotric"
+      - "REI Co-op"
+      - "Specialized"
+      - "Trek"
+      - "Electra"
+      - "Cannondale"
+      - "ENGWE"
+      - "Himiway"
+      - "Heybike"
+      - "AIPAS"
+      - "ET.Cycle"
+      - "Vtuvia"
+      - "Mokwheel"
+      - "Fiido"
+      - "Eunorau"
+      - "Juiced"
+      - "Magnum"
+      - "Pedego"
+      - "Addmotor"
+      - "Surface 604"
+    discord_webhook_secret_key: "discord_webhook_url_ebike"
+
 # ── PRICE THRESHOLDS ───────────────────────────────────────────────
 # These determine what counts as a "deal worth alerting about".
 # The scraper will compare every listing against these numbers.
@@ -182,6 +231,17 @@ price:
     256:  1300   # 256GB: alert if under $1,300
     512:  1500   # 512GB: alert if under $1,500
     1024: 1700   # 1TB:   alert if under $1,700
+    # ── Folding step-through commuter e-bike ("ebike" product_type,
+    # never has ram_gb/storage_gb set, so PriceAnalyzer._threshold_key()
+    # falls back to the product_type string "ebike" as the key) ──────
+    # Researched Aug 2026: used fat-tire folding e-bikes in this
+    # rider's spec range (48V, 15-20Ah+, 750W-class motor, step-
+    # through/folding) from brands like Lectric (XPedition), Aventon,
+    # Himiway, Heybike typically resell used in the $900-1,800 range.
+    # The rider's own stated soft budget ceiling is ~$1,500 total, so
+    # "great deal" is set noticeably under that (leaves room for
+    # shipping/accessories) rather than right at the ceiling.
+    ebike: 900     # under $900: alert immediately
 
   # "Good deal" threshold — worth checking but less urgent.
   good_deal_usd:
@@ -192,6 +252,8 @@ price:
     256:  1500   # 256GB: worth looking at under $1,500
     512:  1700   # 512GB: worth looking at under $1,700
     1024: 1950   # 1TB:   worth looking at under $1,950
+    # See great_deal_usd's "ebike" entry above for sourcing.
+    ebike: 1300   # under $1,300: worth looking at
 
   # Number of top deals to include in each alert email
   # Increased from 15 to 25 to account for more scraping sources
@@ -247,6 +309,14 @@ sites:
 
   swappa:
     enabled: true
+    # Swappa is a phone/tablet/laptop resale marketplace only, never
+    # bikes or apparel. Restricted the same way apple_refurb/bestbuy/
+    # newegg/gazelle already are below, added alongside the ebike
+    # product type since that's the first search where this gap would
+    # otherwise actually matter (swappa.py would run and waste a
+    # request against a marketplace that structurally can't carry
+    # e-bike listings).
+    applicable_product_types: [electronics]
     # Swappa has a dedicated API for listings.
     base_url: "https://swappa.com/api"
 
@@ -368,6 +438,22 @@ sites:
   facebook:
     enabled: false          # Disabled by default — requires login setup
     search_url: "https://www.facebook.com/marketplace/search/?query={{query}}"
+
+  # Pinkbike BuySell, "Ebikes - Urban/Commuter" category. Bike-specific
+  # , never carries electronics/apparel, so applicable_product_types
+  # restricts it the same way apple_refurb/bestbuy/newegg/gazelle/
+  # swappa are restricted the other direction. See
+  # src/scrapers/pinkbike.py's module docstring for the category ID,
+  # region filter, and currency-filtering LIVE-TESTING FINDINGS this
+  # scraper is built on.
+  pinkbike:
+    enabled: true
+    applicable_product_types: [ebike]
+    # NOTE: this search_url is not actually used programmatically --
+    # src/scrapers/pinkbike.py builds the real URL itself (category/
+    # region/sort/page params), kept here only as a human-readable
+    # reference of the URL shape.
+    search_url: "https://www.pinkbike.com/buysell/list/?category=63&region=3&sort=price-up&page={{page}}"
 
 # ── ALERT SETTINGS ─────────────────────────────────────────────────
 # How you want to be notified when a deal is found.

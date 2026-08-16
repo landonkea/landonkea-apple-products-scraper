@@ -1,6 +1,8 @@
 # landonkea-apple-products-scraper
 
-Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box, Gazelle, Newegg, and Craigslist on a schedule (see [Run Schedule](#run-schedule), once daily by default), alerting on great-priced deals for MacBook Pro (last 3 chip generations), iPhone Pro Max (last 3 generations), iPad Pro (last 3 chip generations, WiFi + Cellular), and Apple Vision Pro (256/512GB/1TB, both the original M2 and the Oct 2025 M5-refresh unit, see [Apple Vision Pro](#apple-vision-pro) below). OfferUp and Facebook Marketplace are wired in as login-gated stubs, they stay inert (zero network calls) until their session-cookie secrets are configured.
+Scrapes eBay, Swappa, Apple Refurbished, Back Market, Mercari, Best Buy Open Box, Gazelle, Newegg, and Craigslist on a schedule (see [Run Schedule](#run-schedule), once daily by default), alerting on great-priced deals for MacBook Pro (last 3 chip generations), iPhone Pro Max (last 3 generations), iPad Pro (last 3 chip generations, WiFi + Cellular), and Apple Vision Pro (256/512GB/1TB, both the original M2 and the Oct 2025 M5-refresh unit, see [Apple Vision Pro](#apple-vision-pro) below). OfferUp needs no login and runs for real (Playwright extracts its Next.js `__NEXT_DATA__` embedded JSON, no anti-bot bypass beyond that). Facebook Marketplace is the one wired in as a login-gated stub, it stays inert (zero network calls) until `FACEBOOK_SESSION_COOKIE` is configured.
+
+A second, unrelated category also runs live alongside the Apple searches: a used folding, step-through, fat-tire commuter e-bike search (eBay/Craigslist/Mercari/OfferUp + a dedicated Pinkbike BuySell scraper), alerting to its own separate Discord channel. See [E-Bike Search](#e-bike-search) below.
 
 ## How It Works
 
@@ -207,6 +209,24 @@ What this required beyond the handler itself:
 
 **Not enabled in production**: `apparel` is registered in `PRODUCT_TYPES` but there's no active `searches:` entry for it in `config.yaml`, only a commented-out example. This repo's owner wants their Discord channel alerting on Apple deals, not boots, so the feature is proven via `tests/test_product_types_apparel.py` (28 tests: parsing, filtering, scoring, and a `get_enabled_scrapers()` integration check) rather than by actually running it in production. Uncomment the example in `config.yaml` to turn it on for real.
 
+## E-Bike Search
+
+A third `ProductTypeHandler` (`src/product_types/ebike.py`), and, unlike apparel above, live in production `config.yaml` alongside the Apple searches. It targets one specific bike: a used folding, step-through, fat-tire e-bike suitable for a 5'2", ~290lb rider's daily 15-mile-each-way Phoenix, AZ commute, researched and specified directly by this repo's owner. See that file's module docstring for the full rider brief and the scoring rationale.
+
+**Two things make this different from every other search here:**
+
+1. **Almost everything is a scoring bonus, not a hard filter.** Step-through frame, folding, wheel size, battery capacity, motor wattage, brakes, suspension, and UL certification all come from imperfect title-text parsing, so a listing isn't rejected just because one of those didn't parse. The only two hard filters are a stated weight capacity under 330lb (when a listing actually states one) and a $300 accessory-listing price floor. See `passes_type_filters()`/`min_price_usd()` in `ebike.py`.
+
+2. **Step-through is a title-keyword signal only, never a verified frame-geometry check.** The rider brief is explicit that a manufacturer's "low frame" marketing claim isn't the same thing as a true step-through geometry, and that verifying the real thing needs manufacturer photos/spec sheets, something no title-parsing pipeline can do. Treat `step_through=True` on a listing as "worth a closer look," not as confirmed.
+
+**Nominal vs. peak motor wattage**: a listing stating a single unqualified wattage figure (the common case) is recorded as `motor_watts_nominal`, never `motor_watts_peak`, unless the title itself says "peak"/"max" next to that figure. A title stating both ("750W nominal / 1200W peak") gets both fields set correctly. See `extract_motor_watts()`'s docstring in `ebike.py`.
+
+**Sources**: the general marketplaces (eBay, Craigslist, Mercari, OfferUp) search it for free, same as apparel would, since they build queries from `product_name` alone — see `product_types/base.py`'s "how to add a new product type" doc comment. `pinkbike.py` is the one dedicated scraper, see its module docstring for the category ID, region filter, and USD-only currency filtering it's built on (Pinkbike mixes CAD/USD listings even within a US/Canada region filter, so non-USD listings are skipped rather than converted at a rate that would drift stale). Facebook Marketplace's session-cookie/login requirement is unrelated to this feature (OfferUp needs no login at all, see the `Scrapers` table above), both behave identically for every search regardless of product type.
+
+**Separate Discord channel**: `config.yaml`'s ebike `searches:` entry sets `discord_webhook_secret_key: "discord_webhook_url_ebike"`, so its alerts resolve `DISCORD_WEBHOOK_URL_EBIKE`/`DISCORD_WEBHOOK_URL_EBIKE_DEV` instead of the default `DISCORD_WEBHOOK_URL`/`DISCORD_WEBHOOK_URL_DEV` the Apple searches use, see `notifier.py`'s `_resolve_discord_webhook_url()`. This is a small generic per-search webhook-routing feature (any future search can set its own `discord_webhook_secret_key`), not ebike-specific machinery. **You need to create this webhook yourself**: Discord → your server → Settings → Integrations → Webhooks → New Webhook, in whichever channel you want e-bike alerts to land in (separate from your Apple deal alerts), then set its URL as the `DISCORD_WEBHOOK_URL_EBIKE` GitHub Secret (production) and/or in your local `.env` (dev). Left unset, ebike alerts are simply skipped with a log line, not an error.
+
+**Craigslist region**: the ebike search needs `"phoenix"` in `sites.craigslist.regions` to actually cover the rider's real metro area. Locally, this repo's `config.local.yaml` (gitignored) already includes it. In production, this needs to be added to the `CRAIGSLIST_REGIONS_YAML` GitHub Secret (see [Environments](#environments) above) if it isn't already there, this repo can't read/write that secret for you.
+
 ## Environment Variables
 
 See `.env.example` for the full list with descriptions. Locally these go in a `.env` file (gitignored); in GitHub Actions they're environment-scoped repository secrets, never committed.
@@ -226,8 +246,9 @@ Three narrower templates break that same list down per environment, `.env.dev.ex
 | `gazelle.py` | Gazelle | Plain HTTP + HTML parsing |
 | `newegg.py` | Newegg | Plain HTTP + HTML parsing |
 | `craigslist.py` | Craigslist | Plain HTTP + HTML parsing; config-driven list of metro regions (`sites.craigslist.regions`, defaults to `["phoenix"]`). Loops over every configured region (e.g. AZ/NM/CA/UT/NV/CO metros) to cover multiple states in one run |
-| `offerup.py` | OfferUp | Playwright, login-gated stub |
+| `offerup.py` | OfferUp | Playwright, extracts data from Next.js `__NEXT_DATA__` embedded JSON (no login required) |
 | `facebook.py` | Facebook Marketplace | Login-gated stub, inert until `FACEBOOK_SESSION_COOKIE` is set |
+| `pinkbike.py` | Pinkbike BuySell | Plain Playwright (no stealth needed, see that file's module docstring), "Ebikes - Urban/Commuter" category only. `applicable_product_types: [ebike]`, so it never runs for the Apple searches |
 
 ## Run Schedule
 
@@ -256,6 +277,8 @@ Schema changes are managed with [Alembic](https://alembic.sqlalchemy.org/), not 
 
 `migrations/versions/0001_baseline_schema.py` is the starting point: it reproduces exactly what this project's schema looked like right before Alembic was introduced (previously kept current by a hand-rolled `_ensure_columns()` ALTER-TABLE stopgap in `database.py`, now removed). It's written to be safe to run against a brand-new database, an already-fully-migrated one, or an old database still missing a few of the newer optional columns (`cpu_cores`/`gpu_cores`/`size`/`brand`/`color`), see that file's docstring for why it guards every operation instead of calling `create_table`/`add_column` unconditionally.
 
+`migrations/versions/0002_add_ebike_columns.py` adds the e-bike-specific columns (`wheel_size_in`, `fat_tire`, `step_through`, `folding`, `battery_voltage`, `battery_ah`, `battery_wh`, `motor_watts_nominal`, `motor_watts_peak`, `weight_capacity_lb`, `brake_type`, `suspension`, `ul_certified`), same guarded-against-already-existing-columns pattern as 0001.
+
 **Adding a new migration** (once there's an actual schema change to make): update the model in `src/database.py`, then generate a revision with
 
 ```bash
@@ -279,15 +302,19 @@ src/
 ├── product_types/
 │   ├── base.py                # ProductTypeHandler interface
 │   ├── electronics.py         # Apple hardware implementation (MacBook Pro/iPhone)
-│   └── apparel.py             # Boots implementation, second category, not live in config.yaml
+│   ├── vision_pro.py          # Apple Vision Pro, live in config.yaml
+│   ├── apparel.py             # Boots implementation, second category, not live in config.yaml
+│   └── ebike.py                # Folding step-through commuter e-bike, live in config.yaml
 └── scrapers/
     ├── base.py                # BaseScraper ABC (rate limiting, dispatch to product_types)
     ├── ebay.py, swappa.py, apple_refurb.py, backmarket.py,
     ├── mercari.py, bestbuy.py, gazelle.py, newegg.py, craigslist.py,
-    └── offerup.py, facebook.py
+    ├── offerup.py, facebook.py,
+    └── pinkbike.py                # Ebike-only, see src/scrapers/pinkbike.py's module docstring
 tests/
 ├── test_config.py, test_database.py, test_scrapers.py,
-├── test_product_types.py, test_product_types_apparel.py, test_price_analyzer.py, test_environment.py,
+├── test_product_types.py, test_product_types_apparel.py, test_product_types_ebike.py,
+├── test_price_analyzer.py, test_environment.py,
 ├── test_price_drop.py, test_backmarket_scraper.py, test_gazelle_scraper.py,
 ├── test_newegg_scraper.py, test_craigslist_scraper.py,
 └── test_price_history.py, test_scooped_deal.py, test_dry_run.py,

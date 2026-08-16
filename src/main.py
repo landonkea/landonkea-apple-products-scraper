@@ -39,6 +39,7 @@ from scrapers.newegg import NeweggScraper
 from scrapers.gazelle import GazelleScraper
 from scrapers.craigslist import CraigslistScraper
 from scrapers.facebook import FacebookMarketplaceScraper
+from scrapers.pinkbike import PinkbikeScraper
 
 from price_analyzer import PriceAnalyzer, is_meaningful_price_drop
 from notifier import Notifier
@@ -73,6 +74,10 @@ SCRAPER_CLASSES = {
     # scrapers/facebook.py and docs/marketplace-setup.md. Also
     # `enabled: false` in config.yaml, so it won't even run by default.
     "facebook": FacebookMarketplaceScraper,
+    # Bike-specific, applicable_product_types: ["ebike"] in config.yaml
+    # means this is automatically skipped for every non-ebike search,
+    # see scrapers/pinkbike.py's module docstring.
+    "pinkbike": PinkbikeScraper,
 }
 
 
@@ -169,6 +174,19 @@ def listing_to_db(db, listing: ScrapedListing,
         existing.size = listing.size
         existing.brand = listing.brand
         existing.color = listing.color
+        existing.wheel_size_in = listing.wheel_size_in
+        existing.fat_tire = listing.fat_tire
+        existing.step_through = listing.step_through
+        existing.folding = listing.folding
+        existing.battery_voltage = listing.battery_voltage
+        existing.battery_ah = listing.battery_ah
+        existing.battery_wh = listing.battery_wh
+        existing.motor_watts_nominal = listing.motor_watts_nominal
+        existing.motor_watts_peak = listing.motor_watts_peak
+        existing.weight_capacity_lb = listing.weight_capacity_lb
+        existing.brake_type = listing.brake_type
+        existing.suspension = listing.suspension
+        existing.ul_certified = listing.ul_certified
         existing.last_seen_at = datetime.now(timezone.utc)
         existing.is_active = True
         db_obj = existing
@@ -190,15 +208,40 @@ def listing_to_db(db, listing: ScrapedListing,
             size=listing.size,
             brand=listing.brand,
             color=listing.color,
+            wheel_size_in=listing.wheel_size_in,
+            fat_tire=listing.fat_tire,
+            step_through=listing.step_through,
+            folding=listing.folding,
+            battery_voltage=listing.battery_voltage,
+            battery_ah=listing.battery_ah,
+            battery_wh=listing.battery_wh,
+            motor_watts_nominal=listing.motor_watts_nominal,
+            motor_watts_peak=listing.motor_watts_peak,
+            weight_capacity_lb=listing.weight_capacity_lb,
+            brake_type=listing.brake_type,
+            suspension=listing.suspension,
+            ul_certified=listing.ul_certified,
         )
         db.add(db_obj)
         # Flush so db_obj.id is populated before record_price_history
         # needs it (a brand-new row has no id until the INSERT runs).
         db.flush()
 
-    # Mark great deals
-    ram = listing.ram_gb or 64
-    threshold = config.price.great_deal_usd.get(ram, 5000)
+    # Mark great deals. This is a provisional value, PriceAnalyzer.analyze()
+    # (called later in _run_one_search(), after every listing this run
+    # has been saved) recomputes is_great_deal per listing via the
+    # same threshold-key logic (see price_analyzer.py's
+    # _threshold_key()) and is the actual value used for alerting; this
+    # one only needs to be reasonable in case a listing is read before
+    # that runs. Uses the same ram_gb -> storage_gb -> product_type
+    # fallback as _threshold_key() rather than a bare `ram_gb or 64`,
+    # a listing with neither ram_gb nor storage_gb (e.g. an ebike
+    # listing, which never has either) would otherwise silently key
+    # into the MacBook 64GB threshold ($4000/$4500) purely because 64
+    # was a hardcoded fallback, same bug _threshold_key()'s docstring
+    # describes for the analyzer path.
+    key = listing.ram_gb or listing.storage_gb or config.search.product_type
+    threshold = config.price.great_deal_usd.get(key, 5000)
     db_obj.is_great_deal = listing.price_usd <= threshold
 
     # Per-listing price history (separate from DailyPriceStat's daily

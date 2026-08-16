@@ -335,4 +335,22 @@ class eBayScraper(BaseScraper):
             location=None,
             cpu_cores=cpu_cores,
             gpu_cores=gpu_cores,
+            # E-bike-specific fields (see product_types/ebike.py) --
+            # .get() rather than bracket access since these keys are
+            # only present in an ebike-search's specs dict, not
+            # electronics'. Always None for an electronics search.
+            brand=specs.get("brand"),
+            wheel_size_in=specs.get("wheel_size_in"),
+            fat_tire=specs.get("fat_tire"),
+            step_through=specs.get("step_through"),
+            folding=specs.get("folding"),
+            battery_voltage=specs.get("battery_voltage"),
+            battery_ah=specs.get("battery_ah"),
+            battery_wh=specs.get("battery_wh"),
+            motor_watts_nominal=specs.get("motor_watts_nominal"),
+            motor_watts_peak=specs.get("motor_watts_peak"),
+            weight_capacity_lb=specs.get("weight_capacity_lb"),
+            brake_type=specs.get("brake_type"),
+            suspension=specs.get("suspension"),
+            ul_certified=specs.get("ul_certified"),
         )

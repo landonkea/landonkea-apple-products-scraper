@@ -333,8 +333,7 @@ class PriceAnalyzer:
         text = f"{listing.condition or ''} {listing.title or ''}".lower()
         return any(kw in text for kw in SUSPICIOUS_CONDITION_KEYWORDS)
 
-    @staticmethod
-    def _threshold_key(listing: Listing):
+    def _threshold_key(self, listing: Listing):
         """
         The key used to look up this listing's great_deal_usd /
         good_deal_usd threshold in config.yaml's `price:` block.
@@ -349,18 +348,28 @@ class PriceAnalyzer:
         headset or phone by accident, purely because 64 happened to be
         the hardcoded fallback. Falling back to storage_gb instead
         gives products with no RAM tier a chance at a real, specific
-        threshold (e.g. Vision Pro's storage-keyed thresholds below) --
-        and for products with neither (an unparsed listing), falling
-        through to dict.get()'s own default (5000/5500) is still a
-        more honest "we don't know" than silently reusing a MacBook
-        tier.
+        threshold (e.g. Vision Pro's storage-keyed thresholds below).
+
+        A product with NEITHER ram_gb NOR storage_gb (e.g. an e-bike
+        listing -- see product_types/ebike.py, which sets both to None
+        for every listing) falls through one level further, to
+        self.config.search.product_type itself (e.g. "ebike") as the
+        threshold key, so config.yaml can give that whole category its
+        own great_deal_usd/good_deal_usd entry (see the "ebike" key
+        there) instead of silently missing dict.get()'s caller-supplied
+        default and applying a MacBook-tier price to a $900 bike. This
+        only ever changes behavior for a listing that already has
+        neither ram_gb nor storage_gb set -- every electronics/
+        vision_pro listing (which always has one or the other) resolves
+        exactly as before.
 
         Returns:
-            listing.ram_gb if set, else listing.storage_gb, else None
-            (dict.get() with None simply misses and returns its
-            caller-supplied default).
+            listing.ram_gb if set, else listing.storage_gb, else the
+            active search's product_type string, else None (dict.get()
+            with None simply misses and returns its caller-supplied
+            default).
         """
-        return listing.ram_gb or listing.storage_gb
+        return listing.ram_gb or listing.storage_gb or self.config.search.product_type
 
     def _source_reliability_bonus(self, source: str) -> float:
         """

@@ -119,6 +119,9 @@ jobs:
           ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           DISCORD_WEBHOOK_URL_DEV: ${{ secrets.DISCORD_WEBHOOK_URL_DEV }}
+          # Non-production counterpart to DISCORD_WEBHOOK_URL_EBIKE
+          # (see scrape.yml), same optional/unset-means-skip behavior.
+          DISCORD_WEBHOOK_URL_EBIKE_DEV: ${{ secrets.DISCORD_WEBHOOK_URL_EBIKE_DEV }}
         run: |
           mkdir -p data
           python -m main

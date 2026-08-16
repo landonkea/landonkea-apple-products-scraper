@@ -77,8 +77,25 @@ class ScrapedListing:
     # parse_common_specs(), so no electronics scraper needs to change
     # to leave these at their default).
     size: Optional[float] = None    # US size, e.g. 10.5
-    brand: Optional[str] = None     # e.g. "Red Wing"
+    brand: Optional[str] = None     # e.g. "Red Wing" / "Lectric"
     color: Optional[str] = None     # e.g. "black"
+    # ── E-bike-specific fields (see src/product_types/ebike.py) ─────
+    # Always None for electronics/apparel listings -- only the ebike
+    # ProductTypeHandler's parse_specs() populates these, same pattern
+    # as the apparel fields above.
+    wheel_size_in: Optional[float] = None
+    fat_tire: Optional[bool] = None
+    step_through: Optional[bool] = None     # title-keyword signal only, see ebike.py's module docstring
+    folding: Optional[bool] = None
+    battery_voltage: Optional[int] = None
+    battery_ah: Optional[float] = None
+    battery_wh: Optional[float] = None
+    motor_watts_nominal: Optional[int] = None
+    motor_watts_peak: Optional[int] = None
+    weight_capacity_lb: Optional[int] = None
+    brake_type: Optional[str] = None        # "hydraulic" / "mechanical" / "rim"
+    suspension: Optional[bool] = None
+    ul_certified: Optional[bool] = None
 
 
 # ── Base scraper ──────────────────────────────────────────────────

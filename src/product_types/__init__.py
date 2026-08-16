@@ -10,6 +10,7 @@
 from product_types.electronics import ElectronicsHandler
 from product_types.apparel import ApparelHandler
 from product_types.vision_pro import VisionProHandler
+from product_types.ebike import EbikeHandler
 
 PRODUCT_TYPES = {
     "electronics": ElectronicsHandler(),
@@ -25,4 +26,8 @@ PRODUCT_TYPES = {
     # tier, its own accessory keyword list). Referenced by an active
     # searches: entry in config.yaml.
     "vision_pro": VisionProHandler(),
+    # Folding step-through commuter e-bikes -- see
+    # product_types/ebike.py's module docstring. Unlike apparel, this
+    # one IS referenced by an active config.yaml `searches:` entry.
+    "ebike": EbikeHandler(),
 }
