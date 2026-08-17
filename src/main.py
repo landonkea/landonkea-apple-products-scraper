@@ -487,11 +487,11 @@ def _run_one_search(
     top_deals = analyzer.get_top_deals()
     if top_deals:
         print(f"\n  🔥 Top {len(top_deals)} Deals:")
-        for i, l in enumerate(top_deals[:5], 1):
-            emoji = "🔥" if l.is_great_deal else "💰"
-            print(f"    {emoji} #{i}: ${l.price_usd:,.0f} "
-                  f"| {l.source} "
-                  f"| Score: {l.deal_score}")
+        for i, deal in enumerate(top_deals[:5], 1):
+            emoji = "🔥" if deal.is_great_deal else "💰"
+            print(f"    {emoji} #{i}: ${deal.price_usd:,.0f} "
+                  f"| {deal.source} "
+                  f"| Score: {deal.deal_score}")
 
     # ── 2d. Find truly new listings ────────────────────────
     print("\n🆕 Checking for new listings...")
@@ -501,7 +501,7 @@ def _run_one_search(
     # ── 2e. Send alerts ────────────────────────────────────
     print("\n📬 Sending alerts...")
 
-    has_great_deals = any(l.is_great_deal for l in top_deals)
+    has_great_deals = any(deal.is_great_deal for deal in top_deals)
 
     if config.dry_run:
         # --dry-run/--no-alert: run the full pipeline (scrape, save,

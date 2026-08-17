@@ -88,7 +88,17 @@ class AppleRefurbScraper(BaseScraper):
                 # Step 3: extract the JSON string from the script
                 # content by removing the JS variable assignment
                 script_content = script_tag.string
-                
+                if script_content is None:
+                    # .string is None when the tag has more than one
+                    # child node (e.g. comments mixed with text)
+                    # instead of a single text node, malformed/changed
+                    # markup rather than the expected shape.
+                    print(
+                        f"  [Apple Refurb] REFURB_GRID_BOOTSTRAP script tag"
+                        f" had no text content on {page_url}"
+                    )
+                    continue
+
                 # The variable looks like:
                 #   window.REFURB_GRID_BOOTSTRAP = { ... };
                 # We strip the prefix and the trailing semicolon.

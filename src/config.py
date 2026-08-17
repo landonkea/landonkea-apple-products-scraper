@@ -353,11 +353,12 @@ class Config:
     # loop sets this (`config.search = search_config`) before running
     # any scraper, every scraper and BaseScraper.passes_filters()/
     # parse_common_specs() reads config.search rather than taking a
-    # SearchConfig parameter directly. Declared here (defaulting to
-    # None) purely so that runtime contract is visible in the type
-    # system instead of being an undeclared attribute nothing outside
-    # main.py's loop could see was expected to exist.
-    search: Optional["SearchConfig"] = None
+    # SearchConfig parameter directly. Backed by _search (below) and
+    # exposed through the search property so that reading it before
+    # main.py's loop has set it raises a clear, actionable error
+    # instead of the confusing "'NoneType' object has no attribute"
+    # you'd get from a bare Optional field.
+    _search: Optional["SearchConfig"] = field(default=None, repr=False)
     # Set by main()'s CLI parsing when --dry-run or --no-alert is
     # passed. When True, every notification send (email + Discord,
     # both "new deal" and "price drop" alerts) is skipped -- the run
@@ -367,6 +368,30 @@ class Config:
     # False so all existing callers (including load_config()) keep
     # sending alerts exactly as before.
     dry_run: bool = False
+
+    @property
+    def search(self) -> "SearchConfig":
+        """
+        The active SearchConfig for the search currently being
+        processed. Raises RuntimeError instead of returning None if
+        read before main.py's per-search loop has set it, this is
+        what every scraper/notifier/analyzer call chain in this repo
+        assumes is already true, so a violation should fail loudly
+        right here rather than surface as an obscure AttributeError
+        three calls deeper.
+        """
+        if self._search is None:
+            raise RuntimeError(
+                "config.search was read before being set. main.py's "
+                "per-search loop must set `config.search = search_config` "
+                "before running any scraper, notifier, or price analyzer "
+                "for that search."
+            )
+        return self._search
+
+    @search.setter
+    def search(self, value: "SearchConfig") -> None:
+        self._search = value
 
 
 # ── Helper: build a SiteConfig from raw YAML ──────────────────────

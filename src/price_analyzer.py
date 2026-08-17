@@ -275,7 +275,7 @@ class PriceAnalyzer:
                 "q75": 0,
             }
         
-        prices = [l.price_usd for l in self.listings]
+        prices = [listing.price_usd for listing in self.listings]
         prices_sorted = sorted(prices)
         n = len(prices_sorted)
         
@@ -649,7 +649,7 @@ class PriceAnalyzer:
                     )
 
         # Sort by score descending (best deals first)
-        self.listings.sort(key=lambda l: l.deal_score or 0, reverse=True)
+        self.listings.sort(key=lambda listing: listing.deal_score or 0, reverse=True)
 
         return self.listings
     

@@ -96,7 +96,7 @@ def test_discover_generation_links_finds_product_pages():
     soup = BeautifulSoup(MACBOOK_SEARCH_HTML, "lxml")
     links = scraper._discover_generation_links(soup)
     assert len(links) == 2
-    assert all(l.startswith("https://www.backmarket.com") for l in links)
+    assert all(link.startswith("https://www.backmarket.com") for link in links)
 
 
 def test_discover_generation_links_excludes_off_topic_tiles():
@@ -110,14 +110,14 @@ def test_discover_generation_links_excludes_off_topic_tiles():
     scraper = make_scraper(product_name="MacBook Pro")
     soup = BeautifulSoup(MACBOOK_SEARCH_HTML, "lxml")
     links = scraper._discover_generation_links(soup)
-    assert not any("ipad" in l for l in links)
+    assert not any("ipad" in link for link in links)
 
 
 def test_discover_generation_links_strips_tracking_params():
     scraper = make_scraper(product_name="MacBook Pro")
     soup = BeautifulSoup(MACBOOK_SEARCH_HTML, "lxml")
     links = scraper._discover_generation_links(soup)
-    assert any(l.endswith("uuid-1") for l in links)  # "?l=12" stripped
+    assert any(link.endswith("uuid-1") for link in links)  # "?l=12" stripped
 
 
 def test_discover_generation_links_dedupes():

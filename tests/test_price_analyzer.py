@@ -90,7 +90,7 @@ def test_implausibly_cheap_new_sealed_listing_is_flagged():
     # The suspicious $238 listing must not be ranked #1.
     assert top.price_usd != 238.0
 
-    suspicious = next(l for l in analyzed if l.price_usd == 238.0)
+    suspicious = next(listing for listing in analyzed if listing.price_usd == 238.0)
     assert suspicious.deal_score <= 10.0
     assert suspicious.is_great_deal is False
     assert suspicious.title.startswith(SUSPICIOUS_TAG)
@@ -111,7 +111,7 @@ def test_legitimately_cheap_used_listing_is_not_flagged():
     ]
 
     analyzed = analyzer.analyze(listings)
-    cheap = next(l for l in analyzed if l.price_usd == 260.0)
+    cheap = next(listing for listing in analyzed if listing.price_usd == 260.0)
 
     # Not flagged: no "new"/"sealed" claim, so it's treated as a
     # legitimate (if unfortunate) cheap listing, not a scam signal.
@@ -182,6 +182,6 @@ def test_small_batch_does_not_trigger_safeguard():
     ]
 
     analyzed = analyzer.analyze(listings)
-    cheap = next(l for l in analyzed if l.price_usd == 238.0)
+    cheap = next(listing for listing in analyzed if listing.price_usd == 238.0)
 
     assert not cheap.title.startswith(SUSPICIOUS_TAG)

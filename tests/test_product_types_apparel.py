@@ -264,11 +264,12 @@ def _make_full_config(product_type: str) -> Config:
         pinkbike=SiteConfig(enabled=True, applicable_product_types=["ebike"]),
     )
     search = _make_search_config(product_type=product_type)
-    return Config(
+    config = Config(
         searches=[search], price=SimpleNamespace(absolute_max_usd=1000),
         sites=sites, alerts=None, database=None, schedule={}, price_drop=None,
-        search=search,
     )
+    config.search = search
+    return config
 
 
 def test_get_enabled_scrapers_includes_general_marketplaces_for_apparel():
